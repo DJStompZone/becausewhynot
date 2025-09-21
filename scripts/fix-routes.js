@@ -48,6 +48,7 @@ async function addRedirect() {
 (async () => {
   await moveIntoRoute("soundscape.html", "soundscape");
   await moveIntoRoute("victory.html", "victory");
+  await moveIntoRoute("singularity.html", "singularity");
   await aliasIndexToBWN();
-  await addRedirect();
+//  await addRedirect();
 })().catch((e) => { console.error(e); process.exit(1); });
