@@ -1,0 +1,8 @@
+dist/
+build/
+node_modules/
+*.bak
+bak.*
+bak/
+local.env
+*.zip

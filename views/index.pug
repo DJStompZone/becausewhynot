@@ -1,0 +1,473 @@
+html
+  head
+    style.
+      html, body, div {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      }
+      body {
+      overflow: hidden;
+      background-color:#000;
+      filter: hue-rotate(60deg) contrast(1.5) saturate(1.25);
+      }
+      .bt {
+      -moz-box-shadow:inset 0px 1px 0px 0px #54a3f7;
+      -webkit-box-shadow:inset 0px 1px 0px 0px #54a3f7;
+      box-shadow:inset 0px 1px 0px 0px #54a3f7;
+      background:-webkit-gradient(linear, left top, left bottom, color-stop(0.05, #007dc1), color-stop(1, #0061a7));
+      background:-moz-linear-gradient(top, #007dc1 5%, #0061a7 100%);
+      background:-webkit-linear-gradient(top, #007dc1 5%, #0061a7 100%);
+      background:-o-linear-gradient(top, #007dc1 5%, #0061a7 100%);
+      background:-ms-linear-gradient(top, #007dc1 5%, #0061a7 100%);
+      background:linear-gradient(to bottom, #007dc1 5%, #0061a7 100%);
+      background-color:#007dc1;
+      -moz-border-radius:3px;
+      -webkit-border-radius:3px;
+      border-radius:3px;
+      border:1px solid #124d77;
+      display:inline-block;
+      cursor:pointer;
+      color:#ffffff;
+      font-family:Arial;
+      font-size:13px;
+      padding:6px 24px;
+      text-decoration:none;
+      text-shadow:0px 1px 0px #154682;
+      }
+      .bt:hover {
+      background:-webkit-gradient(linear, left top, left bottom, color-stop(0.05, #0061a7), color-stop(1, #007dc1));
+      background:-moz-linear-gradient(top, #0061a7 5%, #007dc1 100%);
+      background:-webkit-linear-gradient(top, #0061a7 5%, #007dc1 100%);
+      background:-o-linear-gradient(top, #0061a7 5%, #007dc1 100%);
+      background:-ms-linear-gradient(top, #0061a7 5%, #007dc1 100%);
+      background:linear-gradient(to bottom, #0061a7 5%, #007dc1 100%);
+      background-color:#0061a7;
+      }
+      .bt:active {
+      position:relative;
+      top:1px;
+      }
+      #btStartAudioVisualization {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      }
+      #txtStatus {
+      position: absolute;
+      bottom: 0px;
+      left: 10px;
+      font-family: "Arial", serif;
+      font-size: 12px;
+      color: rgb(255,255,255);
+      }
+  body
+    a#btStartAudioVisualization.bt Start Audio Visualization
+    p#txtStatus
+    script.
+      //---
+      var audio, audioContext, audioSrc;
+      var analyser, analyserBufferLength;
+      //---
+      var w;
+      var h;
+      var btStart;
+      var txtStatus;
+      var canvas;
+      var context;
+      var imageData;
+      var data;
+      var mouseActive = false;
+      var mouseDown = false;
+      var mousePos = { x:0, y:0 };
+      var mouseFollowSpeed = 0.015;
+      var fov = 250;
+      var speed = 0.75;
+      var particles = [];
+      var particlesCenter = [];
+      var time = 0;
+      var colorInvertValue = 0;
+      //---
+      function init() {
+      canvas = document.createElement( 'canvas' );
+      canvas.addEventListener( 'mousedown', mouseDownHandler, false );
+      canvas.addEventListener( 'mouseup', mouseUpHandler, false );
+      canvas.addEventListener( 'mousemove', mouseMoveHandler, false );
+      canvas.addEventListener( 'mouseenter', mouseEnterHandler, false );
+      canvas.addEventListener( 'mouseleave', mouseLeaveHandler, false );
+      document.body.appendChild( canvas );
+      context = canvas.getContext( '2d' );
+      window.addEventListener( 'resize', onResize, false );
+      onResize();
+      addParticles();
+      render();
+      clearImageData();
+      render();
+      context.putImageData( imageData, 0, 0 );
+      btStart = document.getElementById( 'btStartAudioVisualization' );
+      btStart.addEventListener( 'mousedown', userStart, false );
+      txtStatus = document.getElementById( 'txtStatus' );
+      txtStatus.innerHTML = 'Waiting Patiently For You... Please Click the Start Button.';
+      };
+      //---
+      function userStart() {
+      btStart.removeEventListener( 'mousedown', userStart );
+      btStart.addEventListener( 'mousedown', audioBtHandler, false );
+      btStart.innerHTML = 'Pause Audio';
+      txtStatus.innerHTML = 'Loading Audio...';
+      audioSetup();
+      animate();
+      };
+      //---
+      function audioSetup() {
+      audio = new Audio();
+      audio.src = '/becausewhynot.mp3';
+      audio.controls = false;
+      audio.loop = true;
+      audio.autoplay = true;
+      audio.crossOrigin = 'anonymous';
+      audio.addEventListener( 'canplaythrough', audioLoaded, false );
+      audioContext = new ( window.AudioContext || window.webkitAudioContext )();
+      analyser = audioContext.createAnalyser();
+      analyser.connect( audioContext.destination );
+      analyser.smoothingTimeConstant = 0.65;
+      analyser.fftSize = 512 * 32;//circleSegments * 32;
+      analyserBufferLength = analyser.frequencyBinCount;
+      audioSrc = audioContext.createMediaElementSource( audio );
+      audioSrc.connect( analyser );
+      };
+      function audioLoaded( event ) {
+      txtStatus.innerHTML = 'Song: DJStompZone - Because Why Not';
+      //txtStatus.style.display = 'none';
+      };
+      //---
+      function clearImageData() {
+      for ( var i = 0, l = data.length; i < l; i += 4 ) {
+      data[ i ] = 0;
+      data[ i + 1 ] = 0;
+      data[ i + 2 ] = 0;
+      data[ i + 3 ] = 255;
+      }
+      };
+      function setPixel( x, y, r, g, b, a ) {
+      var i = ( x + y * imageData.width ) * 4;
+      data[ i ] = r;
+      data[ i + 1 ] = g;
+      data[ i + 2 ] = b;
+      data[ i + 3 ] = a;
+      };
+      //---
+      function drawLine( x1, y1, x2, y2, r, g, b, a ) {
+      var dx = Math.abs( x2 - x1 );
+      var dy = Math.abs( y2 - y1 );
+      var sx = ( x1 < x2 ) ? 1 : -1;
+      var sy = ( y1 < y2 ) ? 1 : -1;
+      var err = dx - dy;
+      var lx = x1;
+      var ly = y1;
+      while ( true ) {
+      if ( lx > 0 && lx < w && ly > 0 && ly < h ) {
+      setPixel( lx, ly, r, g, b, a );
+      }
+      if ( ( lx === x2 ) && ( ly === y2 ) )
+      break;
+      var e2 = 2 * err;
+      if ( e2 > -dx ) {
+      err -= dy;
+      lx += sx;
+      }
+      if ( e2 < dy ) {
+      err += dx;
+      ly += sy;
+      }
+      }
+      };
+      //---
+      function getCirclePosition( centerX, centerY, radius, index, segments ) {
+      var angle = index * ( ( Math.PI * 2 ) / segments ) + time;
+      var x = centerX + Math.cos( angle ) * radius;
+      var y = centerY + Math.sin( angle ) * radius;
+      return { x:x, y:y };
+      };
+      function drawCircle( centerPosition, radius, segments ) {
+      var coordinates = [];
+      var radiusSave;
+      var diff = 0;//Math.floor( Math.random() * segments );
+      for ( var i = 0; i <= segments; i++ ) {
+      //var radiusRandom = radius + Math.random() * ( radius / 8 );
+      //var radiusRandom = radius + Math.random() * ( radius / 32 );
+      var radiusRandom = radius;// + ( radius / 8 );
+      if ( i === 0 ) {
+      radiusSave = radiusRandom;
+      }
+      if ( i === segments ) {
+      radiusRandom = radiusSave;
+      }
+      var centerX = centerPosition.x;
+      var centerY = centerPosition.y;
+      var position = getCirclePosition( centerX, centerY, radiusRandom, i, segments );
+      coordinates.push( { x:position.x, y:position.y, index:i + diff, radius:radiusRandom, segments:segments, centerX:centerX, centerY:centerY } );
+      }
+      return coordinates;
+      };
+      //---
+      function addParticle( x, y, z, audioBufferIndex ) {
+      var particle = {};
+      particle.x = x;
+      particle.y = y;
+      particle.z = z;
+      particle.x2d = 0;
+      particle.y2d = 0;
+      particle.audioBufferIndex = audioBufferIndex;
+      return particle;
+      };
+      function addParticles() {
+      var audioBufferIndexMin = 8;
+      var audioBufferIndexMax = 1024;
+      var audioBufferIndex = audioBufferIndexMin;
+      var centerPosition = { x:0, y:0 };
+      var center  = { x:0, y:0 };
+      var c = 0;
+      var w1 = Math.random() * ( w / 1 );
+      var h1 = Math.random() * ( h / 1 );
+      for ( var z = -fov; z < fov; z += 4 ) {
+      var coordinates = drawCircle( centerPosition, 75, 64 );
+      var particlesRow = [];
+      center.x = ( ( w / 2 ) - w1 ) * ( c / 15 ) + w / 2;
+      center.y = ( ( h / 2 ) - h1 ) * ( c / 15 ) + w / 2;
+      c++;
+      //var center = { x:w / 2, y:h / 2 };
+      particlesCenter.push( center );
+      audioBufferIndex = Math.floor( Math.random() * audioBufferIndexMax ) + audioBufferIndexMin;
+      for ( var i = 0, l = coordinates.length; i < l; i++ ) {
+      var coordinate = coordinates[ i ];
+      var particle = addParticle( coordinate.x, coordinate.y, z, audioBufferIndex );
+      particle.index = coordinate.index;
+      particle.radius = coordinate.radius;
+      particle.radiusAudio = particle.radius;
+      particle.segments = coordinate.segments;
+      particle.centerX = coordinate.centerX;
+      particle.centerY = coordinate.centerY;
+      particlesRow.push( particle );
+      if ( i < coordinates.length / 2 ) {
+      audioBufferIndex++;
+      } else {
+      audioBufferIndex--;
+      }
+      if ( audioBufferIndex > audioBufferIndexMax ) {
+      audioBufferIndex = audioBufferIndexMin;
+      }
+      if ( audioBufferIndex < audioBufferIndexMin ) {
+      audioBufferIndex = audioBufferIndexMax;
+      }
+      /*
+      if ( i < audioBufferIndexMax / 2 ) {
+      //if ( i < Math.random() * audioBufferIndexMax ) {
+      audioBufferIndex++;
+      } else {
+      audioBufferIndex--;
+      }
+      */
+      /*
+      audioBufferIndex++;
+      //if ( audioBufferIndex > Math.random() * audioBufferIndexMax ) {
+      if ( audioBufferIndex > audioBufferIndexMax ) {
+      audioBufferIndex = audioBufferIndexMin;
+      }
+      */
+      //audioBufferIndex = Math.floor( Math.random() * audioBufferIndexMax ) + audioBufferIndexMin;
+      }
+      particles.push( particlesRow );
+      }
+      };
+      //---
+      function onResize(){
+      w = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
+      h = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
+      canvas.width = w;
+      canvas.height = h;
+      context.fillStyle = '#000000';
+      context.fillRect( 0, 0, w, h );
+      imageData = context.getImageData( 0, 0, w, h );
+      data = imageData.data;
+      };
+      //---
+      function audioBtHandler( event ) {
+      if ( audio.paused ) {
+      audio.play();
+      btStart.innerHTML = 'Pause Audio';
+      } else {
+      audio.pause();
+      btStart.innerHTML = 'Play Audio';
+      }
+      };
+      //---
+      function mouseDownHandler( event ) {
+      mouseDown = true;
+      };
+      function mouseUpHandler( event ) {
+      mouseDown = false;
+      };
+      function mouseEnterHandler( event ) {
+      mouseActive = true;
+      };
+      function mouseLeaveHandler( event ) {
+      mouseActive = false;
+      mousePos.x = w / 2;
+      mousePos.y = h / 2;
+      mouseDown = false;
+      };
+      function mouseMoveHandler( event ) {
+      mousePos = getMousePos( canvas, event );
+      };
+      function getMousePos( canvas, event ) {
+      var rect = canvas.getBoundingClientRect();
+      return { x:event.clientX - rect.left, y:event.clientY - rect.top };
+      };
+      //---
+      function render() {
+      var frequencySource;
+      if ( analyser ) {
+      frequencySource = new Uint8Array( analyser.frequencyBinCount );
+      analyser.getByteFrequencyData( frequencySource );
+      }
+      //---
+      var sortArray = false;
+      //---
+      for ( var i = 0, l = particles.length; i < l; i++ ) {
+      var particlesRow = particles[ i ];
+      var particlesRowBack;
+      if ( i > 0 ) {
+      particlesRowBack = particles[ i - 1 ];
+      }
+      //---
+      var center = particlesCenter[ i ];
+      if ( mouseActive ) {
+      //center.x = ( ( w / 2 ) - mousePos.x ) * ( -i / 150 ) + w / 2;
+      //center.y = ( ( h / 2 ) - mousePos.y ) * ( -i / 150 ) + h / 2;
+      center.x = ( ( w / 2 ) - mousePos.x ) * ( ( particlesRow[ 0 ].z - fov ) / 500 ) + w / 2;
+      center.y = ( ( h / 2 ) - mousePos.y ) * ( ( particlesRow[ 0 ].z - fov ) / 500 ) + h / 2;
+      } else {
+      center.x += ( ( w / 2 ) - center.x ) * mouseFollowSpeed;
+      center.y += ( ( h / 2 ) - center.y ) * mouseFollowSpeed;
+      }
+      //---
+      for ( var j = 0, k = particlesRow.length; j < k; j++ ) {
+      var particle = particlesRow[ j ];
+      var scale = fov / ( fov + particle.z );
+      particle.x2d = ( particle.x * scale ) + center.x;
+      particle.y2d = ( particle.y * scale ) + center.y;
+      //---
+      if ( analyser ) {
+      var frequency = frequencySource[ particle.audioBufferIndex ];
+      var frequencyAdd = frequency / 8;
+      particle.radiusAudio = particle.radius + frequencyAdd;
+      } else {
+      particle.radiusAudio = particle.radius;// + Math.random() * 4;
+      }
+      //---
+      if ( mouseDown ) {
+      particle.z += speed;
+      if ( particle.z > fov ) {
+      particle.z -= ( fov * 2 );
+      sortArray = true;
+      }
+      } else {
+      particle.z -= speed;
+      if ( particle.z < -fov ) {
+      particle.z += ( fov * 2 );
+      sortArray = true;
+      }
+      }
+      //---
+      var lineColorValue = 0;
+      if ( j > 0 ) {
+      var p = particlesRow[ j - 1 ];
+      //var lineColorValue = Math.round( ( ( i - ( fov / 5 ) ) / l ) * 255 );
+      lineColorValue = Math.round( i / l * 200 );//255
+      /*
+      if ( analyser ) {
+      lineColorValue = Math.round( i / l * ( 200 + frequency ));//255
+      if ( lineColorValue > 255 ) {
+      lineColorValue = 255;
+      }
+      }
+      */
+      drawLine( particle.x2d | 0, particle.y2d | 0, p.x2d | 0, p.y2d | 0, 0, Math.round( lineColorValue / 2 ), lineColorValue, 255 );
+      }
+      var position;
+      if ( j < k - 1 ) {
+      position = getCirclePosition( particle.centerX, particle.centerY, particle.radiusAudio, particle.index, particle.segments );
+      } else {
+      var p1 = particlesRow[ 0 ];
+      position = getCirclePosition( p1.centerX, p1.centerY, p1.radiusAudio, p1.index, p1.segments );
+      }
+      particle.x = position.x;
+      particle.y = position.y;
+      //---
+      if ( i > 0 && i < l - 1 ) {
+      var pB;// = particlesRowBack[ j ];
+      if ( j === 0 ) {
+      pB = particlesRowBack[ particlesRowBack.length - 1 ];
+      } else {
+      pB = particlesRowBack[ j - 1 ];
+      }
+      drawLine( particle.x2d | 0, particle.y2d | 0, pB.x2d | 0, pB.y2d | 0, 0, Math.round( lineColorValue / 2 ), lineColorValue, 255 );
+      }
+      }
+      }
+      //---
+      if ( sortArray ) {
+      particles = particles.sort( function( a, b ) {
+      return ( b[ 0 ].z - a[ 0 ].z );
+      } );
+      }
+      //---
+      if ( mouseDown ) {
+      time -= 0.005;
+      } else {
+      time += 0.005;
+      }
+      //---
+      //soft invert colors
+      if ( mouseDown ) {
+      if ( colorInvertValue < 255 )
+      colorInvertValue += 5;
+      else
+      colorInvertValue = 255;
+      softInvert( colorInvertValue );
+      } else {
+      if ( colorInvertValue > 0 )
+      colorInvertValue -= 5;
+      else
+      colorInvertValue = 0;
+      if ( colorInvertValue > 0 )
+      softInvert( colorInvertValue );
+      }
+      };
+      //---
+      function softInvert( value ) {
+      for ( var j = 0, n = data.length; j < n; j += 4 ) {
+      data[ j ]     = Math.abs( value - data[ j ] );     // red
+      data[ j + 1 ] = Math.abs( value - data[ j + 1 ] ); // green
+      data[ j + 2 ] = Math.abs( value - data[ j + 2 ] ); // blue
+      data[ j + 3 ] = 255;// - data[ j + 3 ]; // alpha
+      }
+      };
+      //---
+      function animate() {
+      clearImageData();
+      render();
+      context.putImageData( imageData, 0, 0 );
+      requestAnimationFrame( animate );
+      };
+      window.requestAnimFrame = ( function() {
+      return  window.requestAnimationFrame       ||
+      window.webkitRequestAnimationFrame ||
+      window.mozRequestAnimationFrame    ||
+      function( callback ) {
+      window.setTimeout( callback, 1000 / 60 );
+      };
+      } )();
+      //---
+      init();
