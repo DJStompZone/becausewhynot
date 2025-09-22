@@ -54,7 +54,7 @@ animate();
 //---
 function audioSetup() {
 audio = new Audio();
-audio.src = '/becausewhynot.mp3';
+audio.src = '/audio/becausewhynot.mp3';
 audio.controls = false;
 audio.loop = true;
 audio.autoplay = true;
