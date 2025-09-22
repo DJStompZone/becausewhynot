@@ -11,7 +11,7 @@
  * License: MIT
  */
 
-import * as THREE from "/javascripts/three.module.js";
+import * as THREE from "three";
 import { EffectComposer } from "/javascripts/EffectComposer.js";
 import { RenderPass } from "/javascripts/RenderPass.js";
 import { UnrealBloomPass } from "/javascripts/UnrealBloomPass.js";
