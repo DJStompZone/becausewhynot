@@ -377,28 +377,34 @@ class Visualizer {
     if (!f) { ensureDefaultTrack(audio); return; }
     const url = URL.createObjectURL(f);
     audio.src = url;
-    if (stat) stat.textContent = `Loaded ${f.name}`;
+    stat && (stat.textContent = `Loaded ${f.name}`);
   });
 
-  // Basic error visibility
-  audio.addEventListener("error", () => {
-    if (stat) stat.textContent = "Audio error: check file or default track path.";
-  });
+  // Sync UI on media events
+  function setPlayingUI(on) {
+    playBtn.textContent = on ? "⏸ Pause" : "▶︎ Play";
+    stat && (stat.textContent = on ? "Playing" : "Paused");
+  }
+  audio.addEventListener("play", () => setPlayingUI(true));
+  audio.addEventListener("pause", () => setPlayingUI(false));
+  audio.addEventListener("ended", () => setPlayingUI(false));
+  audio.addEventListener("error", () => { stat && (stat.textContent = "Audio error: check file or default track path."); });
 
-  // Play
   playBtn.addEventListener("click", async () => {
-    await ensureAudio({ resume: true });
     ensureDefaultTrack(audio);
-    audio.muted = false;                    // The internet used to be cool T_T
-    audio.volume = 1;
-    try {
-      await audio.play();
-      if (stat) stat.textContent = "Playing";
-    } catch {
-      if (stat) stat.textContent = "Tap the audio control";
+
+    if (audio.paused || audio.ended) {
+      if (!actx) await ensureAudio();
+      if (actx.state === "suspended") { try { await actx.resume(); } catch {} }
+      audio.muted = false;
+      audio.volume = 1;
+      try { await audio.play(); } catch { stat && (stat.textContent = "Tap the audio control"); }
+    } else {
+      audio.pause();
+      if (actx && actx.state === "running") { try { await actx.suspend(); } catch {} }
     }
   });
-
+  
   // Tilty stuffs
   async function toggleGyro() {
     if (viz.gyro.on) { window.removeEventListener("deviceorientation", onDOF); viz.gyro.on = false; gyroBtn.dataset.on = "false"; gyroBtn.textContent = "Off"; return; }
