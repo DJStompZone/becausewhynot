@@ -6,3 +6,5 @@ bak.*
 bak/
 local.env
 *.zip
+
+public/public/
