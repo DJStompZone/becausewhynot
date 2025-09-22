@@ -5,6 +5,7 @@
  * - Custom ShaderMaterial displaces an Icosahedron along normals based on spectrum
  * - UnrealBloomPass for glow; themeable colors; mobile gyro tilt
  * - Inertia orbit + sliders for rotation speed, distortion, reactivity, geometry, bloom
+ * - Default track fallback: /audio/singularity_320k.mp3 if no file is provided and no src is set
  *
  * Author: DJ Stomp <DJStompZone>
  * License: MIT
@@ -35,7 +36,7 @@ function palette(id) {
 }
 
 /**
- * Clamp a number.
+ * Clamp a number. Not for use on nipples.
  * @param {number} v
  * @param {number} lo
  * @param {number} hi
@@ -45,6 +46,7 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 /**
  * Create a gradient background on the document root matching palette.
+ * (Just for the aesthetic)
  * @param {Palette} pal
  */
 function applyBackground(pal) {
@@ -54,7 +56,7 @@ function applyBackground(pal) {
 }
 
 /**
- * Build the scene graph and post stack.
+ * Go go Gadget synthwave factory
  */
 class Visualizer {
   /**
@@ -65,7 +67,7 @@ class Visualizer {
     this.canvas = canvas;
     this.analyser = analyser;
 
-    // Scene
+    // Eyehole candy init
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
     this.camera.position.set(0, 0, 3.5);
@@ -73,14 +75,14 @@ class Visualizer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false });
     this.renderer.setClearColor("#0a0b10", 1);
 
-    // Post FX
+    // Postprocess
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 1.3, 0.9, 0.85);
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
 
-    // DataTexture for spectrum
+    // Math stuff (for fuckin nerds)
     this.fftBins = this.analyser.frequencyBinCount;
     this.spec = new Uint8Array(this.fftBins);
     this.specTex = new THREE.DataTexture(this.spec, this.fftBins, 1, THREE.RedFormat);
@@ -88,12 +90,12 @@ class Visualizer {
     this.specTex.minFilter = THREE.LinearFilter;
     this.specTex.magFilter = THREE.LinearFilter;
 
-    // Geometry and material
+    // Geometry stuff (for dorks)
     this.subdiv = 2;
     this.mesh = this.makeMesh(this.subdiv);
     this.scene.add(this.mesh);
 
-    // Controls
+    // Controls (for geeks)
     this.rotationSpeed = 0.7;
     this.reactivity = 1.0;
     this.distortion = 1.2;
@@ -111,14 +113,14 @@ class Visualizer {
     this.pal = palette("synth");
     applyBackground(this.pal);
 
-    // Resize
+    // If a viewport resizes in the forest and no observer is around to catch it, does it emit?
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.canvas.parentElement || document.body);
     this.resize();
   }
 
   /**
-   * Create or recreate the mesh with a given subdivision level.
+   * Techno waffle iron
    * @param {number} subdiv
    */
   makeMesh(subdiv) {
@@ -128,9 +130,6 @@ class Visualizer {
       this.mesh.material.dispose();
     }
     const geo = new THREE.IcosahedronGeometry(1, subdiv);
-    // Save base positions for stable displacement
-    const basePos = geo.attributes.position.array.slice(0);
-
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
@@ -147,23 +146,18 @@ class Visualizer {
         attribute vec3 position;
         varying float vAmp;
         varying vec3 vPos;
-        vec3 getNormal(vec3 p) {
-          return normalize(p);
-        }
+        vec3 getNormal(vec3 p) { return normalize(p); }
         float sampleSpec(float t) {
           float x = clamp(t, 0.0, 1.0);
           return texture(uSpec, vec2(x, 0.5)).r;
         }
         void main() {
-          // Base position and normal
           vec3 p = position;
           vec3 n = getNormal(p);
-          // Polar angle around Y axis for stable band mapping
           float ang = atan(p.z, p.x);
           float band = fract(0.5 + ang / 6.28318530718);
           float amp = sampleSpec(band) * uReactivity;
           vAmp = amp;
-          // Displace along normal; mild radial bias so mids push more
           float bias = 0.6 + 0.4 * pow(band, 0.5);
           p += n * amp * bias * uDistortion * 0.5;
           vPos = p;
@@ -179,12 +173,9 @@ class Visualizer {
         varying vec3 vPos;
         void main() {
           float r = length(vPos.xy);
-          // core color blend
           vec3 col = mix(uBaseColor, uGlowColor, pow(clamp(vAmp, 0.0, 1.0), 0.8));
-          // rim lighting
           float rim = smoothstep(0.2, 1.0, 1.0 - abs(vPos.z));
           col += rim * 0.25 * vec3(1.0, 0.9, 1.0);
-          // subtle scanlines
           float scan = 0.08 * sin(140.0 * vPos.y + uTime * 2.0);
           col += scan;
           gl_FragColor = vec4(col, 1.0);
@@ -194,11 +185,7 @@ class Visualizer {
       wireframe: false
     });
 
-    // Add a subtle wireframe shell
-    const wire = new THREE.Mesh(
-      geo.clone(),
-      new THREE.MeshBasicMaterial({ color: this.pal.line, wireframe: true, transparent: true, opacity: 0.2 })
-    );
+    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: this.pal.line, wireframe: true, transparent: true, opacity: 0.2 }));
     const group = new THREE.Group();
     const solid = new THREE.Mesh(geo, mat);
     group.add(solid);
@@ -208,7 +195,7 @@ class Visualizer {
   }
 
   /**
-   * Update FFT data and the spectrum texture. Returns bass for HUD fun.
+   * Update FFT data and the spectrum texture. Thanks, Fourier!
    * @returns {number}
    */
   updateFFT() {
@@ -222,7 +209,7 @@ class Visualizer {
   }
 
   /**
-   * Resize the viewport.
+   * Make up your damn mind.
    */
   resize() {
     const rect = this.canvas.getBoundingClientRect();
@@ -237,14 +224,13 @@ class Visualizer {
   }
 
   /**
-   * Animate one frame.
+   * Beep one boop
    * @param {number} t
    */
   frame(t) {
     const time = t * 0.001;
     const bass = this.updateFFT();
 
-    // Inertia orbit
     const damp = 0.12;
     this.yaw += (this.targetYaw - this.yaw) * damp;
     this.pitch += (this.targetPitch - this.pitch) * damp;
@@ -257,11 +243,9 @@ class Visualizer {
     this.mesh.rotation.x = this.pitch + gyroY * 0.3;
     this.mesh.rotation.y += this.yaw + gyroX * 0.3;
 
-    // Pulse the camera a touch with bass
     const z = 3.5 - 0.15 * bass;
     this.camera.position.z += (z - this.camera.position.z) * 0.08;
 
-    // Update uniforms
     const solid = /** @type {THREE.Mesh} */ (this.mesh.children[0]);
     const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
     mat.uniforms.uTime.value = time;
@@ -273,7 +257,7 @@ class Visualizer {
 }
 
 /**
- * Wire the page.
+ * Kick the tires
  */
 (async function main() {
   const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("stage"));
@@ -294,12 +278,38 @@ class Visualizer {
   const stat = /** @type {HTMLSpanElement} */ (document.getElementById("stat"));
   const paletteSel = /** @type {HTMLSelectElement} */ (document.getElementById("palette"));
 
-  // Audio context on gesture
-  /** @type {AudioContext | null} */
-  let actx = null;
-  /** @type {AnalyserNode | null} */
-  let analyser = null;
+  /** @const {string} */
+  const DEFAULT_TRACK = "/audio/singularity_320k.mp3";
 
+  /**
+   * Return true if the audio element has no explicit src attribute value.
+   * @param {HTMLAudioElement} el
+   * @returns {boolean}
+   */
+  function hasEmptySrc(el) {
+    const raw = el.getAttribute("src");
+    return !raw || raw.trim() === "";
+  }
+
+  /**
+   * Ensure the audio element points at a usable source, defaulting to DEFAULT_TRACK if none is set.
+   * Does not override an existing src attribute (e.g., if you set one in Pug).
+   * @param {HTMLAudioElement} el
+   */
+  function ensureDefaultTrack(el) {
+    if (hasEmptySrc(el)) {
+      el.src = DEFAULT_TRACK;
+      if (stat) stat.textContent = "Loaded default: Singularity";
+    }
+  }
+
+  /**
+   * Create or resume the AudioContext graph.
+   * Connects media element -> analyser -> destination.
+   * Idempotent
+   */
+  /** @type {AudioContext | null} */ let actx = null;
+  /** @type {AnalyserNode | null} */ let analyser = null;
   async function ensureAudio() {
     if (actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -310,13 +320,14 @@ class Visualizer {
     src.connect(analyser).connect(actx.destination);
   }
 
+  // Initialize audio graph and default track before building the viz.
+  ensureDefaultTrack(audio);
   await ensureAudio();
+
   const viz = new Visualizer(canvas, /** @type {AnalyserNode} */ (analyser));
 
   // Pointer controls
-  canvas.addEventListener("pointerdown", (e) => {
-    viz.dragging = true; viz.lastX = e.clientX; viz.lastY = e.clientY; canvas.setPointerCapture(e.pointerId);
-  });
+  canvas.addEventListener("pointerdown", (e) => { viz.dragging = true; viz.lastX = e.clientX; viz.lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener("pointermove", (e) => {
     if (!viz.dragging) return;
     const dx = e.clientX - viz.lastX; const dy = e.clientY - viz.lastY;
@@ -325,11 +336,7 @@ class Visualizer {
     viz.targetPitch += dy * 0.004;
   });
   canvas.addEventListener("pointerup", (e) => { viz.dragging = false; canvas.releasePointerCapture(e.pointerId); });
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    viz.zoom = clamp(viz.zoom * Math.exp(-e.deltaY * 0.001), 0.6, 2.5);
-    viz.camera.position.z = 3.5 / viz.zoom;
-  }, { passive: false });
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); viz.zoom = clamp(viz.zoom * Math.exp(-e.deltaY * 0.001), 0.6, 2.5); viz.camera.position.z = 3.5 / viz.zoom; }, { passive: false });
 
   // UI sliders
   function hookRange(input, label, setter) {
@@ -340,11 +347,7 @@ class Visualizer {
   hookRange(rot, rotv, (v) => { viz.rotationSpeed = v; });
   hookRange(dist, distv, (v) => { viz.distortion = v; });
   hookRange(react, reactv, (v) => { viz.reactivity = v; });
-  hookRange(res, resv, (v) => {
-    viz.subdiv = v | 0;
-    viz.mesh = viz.makeMesh(viz.subdiv);
-    viz.scene.add(viz.mesh);
-  });
+  hookRange(res, resv, (v) => { viz.subdiv = v | 0; viz.mesh = viz.makeMesh(viz.subdiv); viz.scene.add(viz.mesh); });
   hookRange(bloom, bloomv, (v) => { viz.bloomPass.strength = v; });
 
   // Palette
@@ -362,19 +365,35 @@ class Visualizer {
   // File load
   fileInput.addEventListener("change", () => {
     const f = fileInput.files && fileInput.files[0];
-    if (!f) return;
+    if (!f) {
+      // If user cleared the picker and no src is present, ensure default again.
+      ensureDefaultTrack(audio);
+      return;
+    }
     const url = URL.createObjectURL(f);
     audio.src = url;
-    stat.textContent = `Loaded ${f.name}`;
+    if (stat) stat.textContent = `Loaded ${f.name}`;
+  });
+
+  // Basic error visibility
+  audio.addEventListener("error", () => {
+    if (stat) stat.textContent = "Audio error: check file or default track path.";
   });
 
   // Play
   playBtn.addEventListener("click", async () => {
     await ensureAudio();
-    try { await audio.play(); stat.textContent = "Playing"; } catch { stat.textContent = "Tap the audio control"; }
+    // If still no src (e.g., dev removed it from Pug), set default right before playing.
+    ensureDefaultTrack(audio);
+    try {
+      await audio.play();
+      if (stat) stat.textContent = "Playing";
+    } catch {
+      if (stat) stat.textContent = "Tap the audio control";
+    }
   });
 
-  // Gyro toggle
+  // Tilty stuffs
   async function toggleGyro() {
     if (viz.gyro.on) {
       window.removeEventListener("deviceorientation", onDOF);
@@ -387,7 +406,9 @@ class Visualizer {
       }
       window.addEventListener("deviceorientation", onDOF);
       viz.gyro.on = true; gyroBtn.dataset.on = "true"; gyroBtn.textContent = "On";
-    } catch { stat.textContent = "Gyro permission denied"; }
+    } catch {
+      if (stat) stat.textContent = "Gyro permission denied";
+    }
   }
   function onDOF(e) {
     const roll = ((e.gamma || 0) / 90) * Math.PI * 0.25;
@@ -397,7 +418,7 @@ class Visualizer {
   }
   gyroBtn.addEventListener("click", toggleGyro);
 
-  // Animate
+  // Light the fires
   function loop(t) { viz.frame(t); requestAnimationFrame(loop); }
   requestAnimationFrame(loop);
 })();
