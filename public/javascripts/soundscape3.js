@@ -11,7 +11,7 @@
  * License: MIT
  */
 
-import * as THREE from "/three.min.js";
+import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
