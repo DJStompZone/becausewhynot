@@ -259,7 +259,7 @@ function userStart() {
     btStart.classList.add("clicked")
     btStart.text = "Enjoy! 😎"
   fade(btStart)
-  audio.src = "/audio/swag.mp3"
+  audio.src = "//audio/audio//audio/swag.mp3"
       audio.oncanplay = () => {
         ac = new AudioContext()
         an = ac.createAnalyser()

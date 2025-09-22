@@ -1,11 +1,14 @@
-// scripts/fix-routes.js  (CommonJS so Node 18 runs it without ESM flags)
 /**
  * Normalizes routes in dist/ and wires BecauseWhyNot:
- * - dist/soundscape.html -> dist/soundscape/index.html
- * - dist/victory.html    -> dist/victory/index.html
- * - dist/index.html      -> dist/becausewhynot/index.html (alias)
- * - adds _redirects rule: /BecauseWhyNot -> /becausewhynot (301)
+ * - dist/soundscape.html     -> dist/soundscape/index.html
+ * - dist/victory.html        -> dist/victory/index.html
+ * - dist/singularity.html    -> dist/singularity/index.html
+ * - dist/index.html          -> dist/becausewhynot/index.html (alias)
+ *
+ * - adds _redirects rule:
+ *             /BecauseWhyNot -> /becausewhynot (301)
  */
+
 const fs = require("fs").promises;
 const path = require("path");
 
@@ -23,7 +26,7 @@ async function moveIntoRoute(file, routeDir) {
   }
 }
 
-async function aliasIndexToBWN() {
+async function aliasIndexToBecauseWhyNot() {
   const dist = "dist";
   const rootIndex = path.join(dist, "index.html");
   if (await exists(rootIndex)) {
@@ -34,21 +37,23 @@ async function aliasIndexToBWN() {
   }
 }
 
-async function addRedirect() {
+async function addRedirects() {
   const redirectsPath = path.join("dist", "_redirects");
-  const rule = "/BecauseWhyNot   /becausewhynot   301\n";
-  let existing = "";
-  if (await exists(redirectsPath)) existing = await fs.readFile(redirectsPath, "utf8");
-  if (!existing.includes("/BecauseWhyNot")) {
-    await fs.appendFile(redirectsPath, rule, "utf8");
-    process.stdout.write("Added redirect: /BecauseWhyNot -> /becausewhynot\n");
+  const lines = [
+    "/BecauseWhyNot   /becausewhynot   301"
+  ];
+  let existing = (await exists(redirectsPath)) ? await fs.readFile(redirectsPath, "utf8") : "";
+  let wrote = false;
+  for (const line of lines) {
+    if (!existing.includes(line)) { await fs.appendFile(redirectsPath, line + "\n", "utf8"); wrote = true; }
   }
+  if (wrote) process.stdout.write("Updated _redirects\n");
 }
 
 (async () => {
   await moveIntoRoute("soundscape.html", "soundscape");
   await moveIntoRoute("victory.html", "victory");
   await moveIntoRoute("singularity.html", "singularity");
-  await aliasIndexToBWN();
-//  await addRedirect();
+  await aliasIndexToBecauseWhyNot();
+  await addRedirects();
 })().catch((e) => { console.error(e); process.exit(1); });

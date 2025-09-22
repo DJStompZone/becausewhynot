@@ -5,28 +5,7 @@ var noise = new SimplexNoise();
     
 // the main visualiser function
 var vizInit = function (){
-  // var file = document.getElementById("thefile");
-  // var fileLabel = document.querySelector("label.file");
 
-  // document.onload = function(e){
-    // fileLabel.classList.add('normal');
-    
-   
-    // audio.load();
-  // }
-    // audio.play();
-    // play();
-  // }
-  // file.onchange = function(){
-    // fileLabel.classList.add('normal');
-    // audio.classList.add('active');
-    // var files = this.files;
-    
-  //   audio.src = URL.createObjectURL(files[0]);
-  //   audio.load();
-  //   audio.play();
-  //   play();
-  // }
 function play() {
     var context = new AudioContext();
     var src = context.createMediaElementSource(audio);
@@ -162,15 +141,13 @@ function play() {
 }
 
 // window.
- audio.src="/sample.mp3";
+ audio.src="/audio/sample.mp3";
 
 document.body.addEventListener('touchend', function(ev) { context.resume(); });
 
 audio.addEventListener('play', (ev)=>{
   vizInit()
   audio.classList.add('active');
-  // audio.load();
-  // play()
 })
 
 
