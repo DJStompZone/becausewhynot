@@ -2,8 +2,7 @@ extends layout
 
 block head
   link(rel='stylesheet', href='/stylesheets/singularity.css')
-    :root {
-      --bg: #0a0b10;
+
       --panel: #111426;
       --panel-border: #2b2e49;
       --text: #e6e6f0;
@@ -83,5 +82,5 @@ block content
     canvas#stage
     .footer ⏵ Now Playing: DJ Stomp - Singularity
 
-  audio#player(preload="metadata" crossorigin="anonymous" src="/audio//audio/singularity_320k.mp3")
+  audio#player(preload="metadata" crossorigin="anonymous" src="/audio/singularity_320k.mp3")
   script(type="module" src="/javascripts/soundscape3.js")
