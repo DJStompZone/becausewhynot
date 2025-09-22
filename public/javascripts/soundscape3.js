@@ -141,17 +141,19 @@ class Visualizer {
         uGlowColor: { value: this.pal.glow }
       },
       vertexShader: `
+        precision highp float;
         uniform sampler2D uSpec;
         uniform float uReactivity;
         uniform float uDistortion;
-        attribute vec3 position;
         varying float vAmp;
         varying vec3 vPos;
+      
         vec3 getNormal(vec3 p) { return normalize(p); }
         float sampleSpec(float t) {
           float x = clamp(t, 0.0, 1.0);
-          return texture(uSpec, vec2(x, 0.5)).r;
+          return texture2D(uSpec, vec2(x, 0.5)).r;
         }
+      
         void main() {
           vec3 p = position;
           vec3 n = getNormal(p);
@@ -165,6 +167,7 @@ class Visualizer {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
       `,
+
       fragmentShader: `
         precision highp float;
         uniform float uTime;
