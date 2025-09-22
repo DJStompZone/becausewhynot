@@ -11,10 +11,10 @@
  * License: MIT
  */
 
-import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
+import * as THREE from "/javascripts/three.module.js";
+import { EffectComposer } from "/javascripts/EffectComposer.js";
+import { RenderPass } from "/javascripts/RenderPass.js";
+import { UnrealBloomPass } from "/javascripts/UnrealBloomPass.js";
 
 /** @typedef {{base:THREE.Color, glow:THREE.Color, line:THREE.Color, bgTop:string, bgBot:string}} Palette */
 
