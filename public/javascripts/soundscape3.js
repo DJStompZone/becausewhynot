@@ -82,6 +82,10 @@ class Visualizer {
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 1.3, 0.9, 0.85);
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
+    
+    // Theme
+    this.pal = palette("synth");
+    applyBackground(this.pal);
 
     // Math stuff (for fuckin nerds)
     this.fftBins = this.analyser.frequencyBinCount;
@@ -109,10 +113,6 @@ class Visualizer {
     this.lastX = 0;
     this.lastY = 0;
     this.gyro = { on: false, roll: 0, pitch: 0 };
-
-    // Theme
-    this.pal = palette("synth");
-    applyBackground(this.pal);
 
     // If a viewport resizes in the forest and no observer is around to catch it, does it emit?
     this.resizeObserver = new ResizeObserver(() => this.resize());
