@@ -12,7 +12,6 @@
  */
 
 import * as THREE from "three";
-// Keep your choice of local vs CDN for JSM modules:
 import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
@@ -166,7 +165,6 @@ class Visualizer {
         uniform sampler2D uSpec;
         uniform float uReactivity;
         uniform float uDistortion;
-        attribute vec3 position;
         varying float vAmp;
         varying vec3 vPos;
         vec3 getNormal(vec3 p) { return normalize(p); }
