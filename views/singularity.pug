@@ -3,6 +3,12 @@ extends layout
 
 block head
   link(rel="stylesheet", href="/stylesheets/singularity.css")
+  script(type='importmap').
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
 
 block content
   header
