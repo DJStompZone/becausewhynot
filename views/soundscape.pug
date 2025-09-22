@@ -1,10 +1,12 @@
 extends layout
 
 block head
-  link(rel='stylesheet', href='/stylesheets/soundscape.css')
+  link(rel="stylesheet", href="/stylesheets/soundscape.css")
 
 block content
-  // no-op content (script-driven page)
+  button#btStartAudioVisualization(type="button") Start Audio Visualization
+  div#txtStatus Waiting Patiently For You... Please Click the Start Button.
+  canvas#stage
 
 block scripts
-  script(src='/javascripts/soundscape.js')
+  script(src="/javascripts/soundscape.js")
