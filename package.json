@@ -2,7 +2,7 @@
   "name": "bwn-visualizer",
   "private": false,
   "scripts": {
-    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && mkdir -p dist && node node_modules/pug-cli/index.js views/index.pug views/soundscape.pug views/victory.pug views/singularity.pug -P -o dist && **node node_modules/cpy-cli/cli.js \"**/*\" dist --cwd=public --parents** && node scripts/fix-routes.js"
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && mkdir -p dist && node node_modules/pug-cli/index.js views/index.pug views/soundscape.pug views/victory.pug views/singularity.pug -P -o dist && node node_modules/cpy-cli/cli.js \"**/*\" dist --cwd=public --parents && node scripts/fix-routes.js"
   },
   "devDependencies": {
     "cpy-cli": "^5.0.0",
