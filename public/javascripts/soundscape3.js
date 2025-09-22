@@ -12,10 +12,10 @@
  */
 
 import * as THREE from "three";
+// Keep your choice of local vs CDN for JSM modules:
 import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
-
 
 /** @typedef {{base:THREE.Color, glow:THREE.Color, line:THREE.Color, bgTop:string, bgBot:string}} Palette */
 
@@ -82,20 +82,20 @@ class Visualizer {
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 1.3, 0.9, 0.85);
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
-    
-    // Theme
-    this.pal = palette("synth");
-    applyBackground(this.pal);
 
-    // Math stuff (for fuckin nerds)
+    // Spectrum texture (for nerds)
     this.fftBins = this.analyser.frequencyBinCount;
     this.spec = new Uint8Array(this.fftBins);
-    this.specTex = new THREE.DataTexture(this.spec, this.fftBins, 1, THREE.RedFormat);
+    this.specTex = new THREE.DataTexture(this.spec, this.fftBins, 1, THREE.LuminanceFormat);
     this.specTex.needsUpdate = true;
     this.specTex.minFilter = THREE.LinearFilter;
     this.specTex.magFilter = THREE.LinearFilter;
 
-    // Geometry stuff (for dorks)
+    // Theme — MUST be set before we build the mesh (!!)
+    this.pal = palette("synth");
+    applyBackground(this.pal);
+
+    // Geometry stuff (For dorks)
     this.subdiv = 2;
     this.mesh = this.makeMesh(this.subdiv);
     this.scene.add(this.mesh);
@@ -114,10 +114,28 @@ class Visualizer {
     this.lastY = 0;
     this.gyro = { on: false, roll: 0, pitch: 0 };
 
-    // If a viewport resizes in the forest and no observer is around to catch it, does it emit?
+    // Resize
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.canvas.parentElement || document.body);
     this.resize();
+  }
+
+  /**
+   * Dispose a mesh/group subtree safely.
+   * @param {THREE.Object3D} obj
+   */
+  disposeObject(obj) {
+    obj.traverse((o) => {
+      // @ts-ignore
+      if (o.isMesh) {
+        // @ts-ignore
+        o.geometry && o.geometry.dispose();
+        // @ts-ignore
+        const m = o.material;
+        if (Array.isArray(m)) m.forEach((mm) => mm && mm.dispose());
+        else if (m && typeof m.dispose === "function") m.dispose();
+      }
+    });
   }
 
   /**
@@ -127,33 +145,35 @@ class Visualizer {
   makeMesh(subdiv) {
     if (this.mesh) {
       this.scene.remove(this.mesh);
-      this.mesh.geometry.dispose();
-      this.mesh.material.dispose();
+      this.disposeObject(this.mesh);
     }
     const geo = new THREE.IcosahedronGeometry(1, subdiv);
+
+    // Defensive: fall back if someone reorders constructor again
+    const pal = this.pal || palette("synth");
+
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
         uSpec: { value: this.specTex },
         uReactivity: { value: this.reactivity },
         uDistortion: { value: this.distortion },
-        uBaseColor: { value: this.pal.base },
-        uGlowColor: { value: this.pal.glow }
+        uBaseColor: { value: pal.base },
+        uGlowColor: { value: pal.glow }
       },
       vertexShader: `
         precision highp float;
         uniform sampler2D uSpec;
         uniform float uReactivity;
         uniform float uDistortion;
+        attribute vec3 position;
         varying float vAmp;
         varying vec3 vPos;
-      
         vec3 getNormal(vec3 p) { return normalize(p); }
         float sampleSpec(float t) {
           float x = clamp(t, 0.0, 1.0);
           return texture2D(uSpec, vec2(x, 0.5)).r;
         }
-      
         void main() {
           vec3 p = position;
           vec3 n = getNormal(p);
@@ -167,7 +187,6 @@ class Visualizer {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         }
       `,
-
       fragmentShader: `
         precision highp float;
         uniform float uTime;
@@ -189,7 +208,7 @@ class Visualizer {
       wireframe: false
     });
 
-    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: this.pal.line, wireframe: true, transparent: true, opacity: 0.2 }));
+    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: pal.line, wireframe: true, transparent: true, opacity: 0.2 }));
     const group = new THREE.Group();
     const solid = new THREE.Mesh(geo, mat);
     group.add(solid);
@@ -285,21 +304,10 @@ class Visualizer {
   /** @const {string} */
   const DEFAULT_TRACK = "/audio/singularity_320k.mp3";
 
-  /**
-   * Return true if the audio element has no explicit src attribute value.
-   * @param {HTMLAudioElement} el
-   * @returns {boolean}
-   */
   function hasEmptySrc(el) {
     const raw = el.getAttribute("src");
     return !raw || raw.trim() === "";
   }
-
-  /**
-   * Ensure the audio element points at a usable source, defaulting to DEFAULT_TRACK if none is set.
-   * Does not override an existing src attribute (e.g., if you set one in Pug).
-   * @param {HTMLAudioElement} el
-   */
   function ensureDefaultTrack(el) {
     if (hasEmptySrc(el)) {
       el.src = DEFAULT_TRACK;
@@ -307,26 +315,25 @@ class Visualizer {
     }
   }
 
-  /**
-   * Create or resume the AudioContext graph.
-   * Connects media element -> analyser -> destination.
-   * Idempotent
-   */
   /** @type {AudioContext | null} */ let actx = null;
   /** @type {AnalyserNode | null} */ let analyser = null;
-  async function ensureAudio() {
-    if (actx) return;
-    actx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = actx.createMediaElementSource(audio);
-    analyser = actx.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.82;
-    src.connect(analyser).connect(actx.destination);
+  async function ensureAudio({ resume } = { resume: false }) {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = actx.createMediaElementSource(audio);
+      analyser = actx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.82;
+      src.connect(analyser).connect(actx.destination);
+    }
+    if (resume && actx.state === "suspended") {
+      try { await actx.resume(); } catch {}
+    }
   }
 
-  // Initialize audio graph and default track before building the viz.
+  // Set default track; create graph
   ensureDefaultTrack(audio);
-  await ensureAudio();
+  await ensureAudio({ resume: false });
 
   const viz = new Visualizer(canvas, /** @type {AnalyserNode} */ (analyser));
 
@@ -369,11 +376,7 @@ class Visualizer {
   // File load
   fileInput.addEventListener("change", () => {
     const f = fileInput.files && fileInput.files[0];
-    if (!f) {
-      // If user cleared the picker and no src is present, ensure default again.
-      ensureDefaultTrack(audio);
-      return;
-    }
+    if (!f) { ensureDefaultTrack(audio); return; }
     const url = URL.createObjectURL(f);
     audio.src = url;
     if (stat) stat.textContent = `Loaded ${f.name}`;
@@ -386,9 +389,10 @@ class Visualizer {
 
   // Play
   playBtn.addEventListener("click", async () => {
-    await ensureAudio();
-    // If still no src (e.g., dev removed it from Pug), set default right before playing.
+    await ensureAudio({ resume: true });
     ensureDefaultTrack(audio);
+    audio.muted = false;                    // The internet used to be cool T_T
+    audio.volume = 1;
     try {
       await audio.play();
       if (stat) stat.textContent = "Playing";
@@ -399,10 +403,7 @@ class Visualizer {
 
   // Tilty stuffs
   async function toggleGyro() {
-    if (viz.gyro.on) {
-      window.removeEventListener("deviceorientation", onDOF);
-      viz.gyro.on = false; gyroBtn.dataset.on = "false"; gyroBtn.textContent = "Off"; return;
-    }
+    if (viz.gyro.on) { window.removeEventListener("deviceorientation", onDOF); viz.gyro.on = false; gyroBtn.dataset.on = "false"; gyroBtn.textContent = "Off"; return; }
     try {
       if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
         const r = await DeviceOrientationEvent.requestPermission();
