@@ -1,3 +1,13 @@
+block head
+  link(rel="stylesheet", href="/stylesheets/style.css")
+  link(rel="stylesheet", href="/stylesheets/singularity.css")
+  script(type='importmap').
+    {
+      "imports": {
+        "three": "/javascripts/three.module.js"
+      }
+    }
+
 block content
   #stage-layer
     canvas#bg-stars(aria-hidden="true")
