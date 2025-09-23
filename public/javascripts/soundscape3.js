@@ -320,8 +320,8 @@ class Visualizer {
         uDistortion: { value: this.distortion },
         uBaseColor: { value: pal.base.clone() },
         uGlowColor: { value: pal.glow.clone() },
-        uBassFast: { value: 0.0 }, // fast-smoothing bass 0..1
-        uSpike: { value: 0.8 }, // spike strength scalar
+        uBassFast: { value: 0.35 }, // fast-smoothing bass 0..1
+        uSpike: { value: 1.3 }, // spike strength scalar
         uSpikeSharp: { value: 8.0 }, // spike sharpness power
       },
       vertexShader: `
