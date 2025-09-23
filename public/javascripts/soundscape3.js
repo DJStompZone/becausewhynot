@@ -1,15 +1,12 @@
 /**
- * Soundscape 3 — Synthwave Three.js Visualizer with Bloom, Starfield, Reactive Orbit, and Bass Stellation
+ * Soundscape 3 — Stellated + STL Edition (WebGL1-safe)
  *
- * - WebAudio AnalyserNode -> spectrum DataTexture (WebGL1-safe)
- * - ShaderMaterial displaces an Icosahedron (audio-reactive)
- * - UnrealBloomPass for glow
- * - Neon starfield (main + blur layer) with additive blending
- * - Bass-driven zoom; mid-driven hue shift; treble-driven orbit speed
- * - NEW: Scene radial background (black -> deep purple)
- * - NEW: Translucent core + wireframe overlay
- * - NEW: Bass-driven stellation spikes (low smoothing on bass only)
- * - Higher default subdivision; controls still rebuild geometry
+ * - Neon starfield (with soft blur layer) on a dark radial background
+ * - Audio-reactive ShaderMaterial on a single mesh (smooth -> stellated spikes)
+ * - Spikes align to 12 icosahedral directions; height driven by fast bass channel
+ * - Translucent solid + subtle wireframe overlay
+ * - Higher default subdivision; responsive orbit/zoom/hue
+ * - STL support: loads /spikeball.stl, normalizes (center + unit radius), swaps geometry in-place
  *
  * Author: DJ Stomp <DJStompZone>
  * License: MIT
@@ -19,11 +16,12 @@ import * as THREE from "three";
 import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { STLLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/STLLoader.js";
 
 /** @typedef {{base:THREE.Color, glow:THREE.Color, line:THREE.Color, bgTop:string, bgBot:string}} Palette */
 
 /**
- * Return the current palette by id.
+ * Palette selection.
  * @param {"synth"|"noir"|"burn"} id
  * @returns {Palette}
  */
@@ -36,24 +34,13 @@ function palette(id) {
   }
 }
 
-/**
- * Clamp a number between lo and hi.
- * @param {number} v
- * @param {number} lo
- * @param {number} hi
- */
+/** Clamp a number. */
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-
-/**
- * Linear interpolation between a and b.
- * @param {number} a
- * @param {number} b
- * @param {number} t
- */
+/** Linear interpolation. */
 function lerp(a, b, t) { return a + (b - a) * t; }
 
 /**
- * Apply a radial gradient background to the sheet UI panel (not the scene).
+ * UI panel background gradient.
  * @param {Palette} pal
  */
 function applyBackground(pal) {
@@ -63,8 +50,7 @@ function applyBackground(pal) {
 }
 
 /**
- * Screen-space radial gradient texture for the scene background (black -> deep purple).
- * Cheap and WebGL1-safe.
+ * Scene radial background (black -> deep purple).
  * @returns {THREE.Texture}
  */
 function makeRadialBackgroundTexture() {
@@ -72,7 +58,7 @@ function makeRadialBackgroundTexture() {
   const cvs = document.createElement("canvas");
   cvs.width = s; cvs.height = s;
   const ctx = cvs.getContext("2d");
-  const g = ctx.createRadialGradient(s * 0.5, s * 0.5, s * 0.05, s * 0.5, s * 0.5, s * 0.7);
+  const g = ctx.createRadialGradient(s * 0.5, s * 0.55, s * 0.05, s * 0.5, s * 0.55, s * 0.7);
   g.addColorStop(0.0, "#000000");
   g.addColorStop(0.5, "#0a0018");
   g.addColorStop(1.0, "#1a0033");
@@ -86,13 +72,11 @@ function makeRadialBackgroundTexture() {
 }
 
 /**
- * Create a neon starfield as THREE.Points with additive blending.
- * Also supports a softer "blur" layer via size/opacity.
+ * Neon starfield (optionally a blur layer for faux motion blur).
  * @param {number} count
  * @param {number} radius
  * @param {Palette} pal
  * @param {{size?:number, opacity?:number}} [opts]
- * @returns {{points:THREE.Points, geom:THREE.BufferGeometry, mat:THREE.PointsMaterial}}
  */
 function createStarfield(count, radius, pal, opts = {}) {
   const size = opts.size ?? 0.1;
@@ -125,34 +109,51 @@ function createStarfield(count, radius, pal, opts = {}) {
   geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
 
-  const mat = new THREE.PointsMaterial({ size, sizeAttenuation: true, vertexColors: true, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+  const mat = new THREE.PointsMaterial({
+    size, sizeAttenuation: true, vertexColors: true,
+    transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false
+  });
+
   const points = new THREE.Points(geom, mat);
   points.renderOrder = -10;
   return { points, geom, mat };
 }
 
-/**
- * Recursively dispose geometries/materials in a Three subtree.
- * @param {THREE.Object3D} obj
- */
+/** Dispose a subtree. */
 function disposeObject(obj) {
   obj.traverse((o) => {
-    if ("isMesh" in o && o.isMesh) {
-      if (o.geometry) o.geometry.dispose();
-      const m = o.material;
-      if (Array.isArray(m)) m.forEach(mm => mm && mm.dispose && mm.dispose());
-      else if (m && m.dispose) m.dispose();
-    }
-    if ("isPoints" in o && o.isPoints) {
-      if (o.geometry) o.geometry.dispose();
-      const m = o.material;
-      if (m && m.dispose) m.dispose();
-    }
+    if ("geometry" in o && o.geometry) o.geometry.dispose?.();
+    const m = /** @type {any} */(o).material;
+    if (Array.isArray(m)) m.forEach(mm => mm?.dispose?.());
+    else m?.dispose?.();
   });
 }
 
 /**
- * Visualizer: wraps scene, camera, renderer, post, mesh, and starfield.
+ * Normalize arbitrary geometry so it behaves like our icosphere:
+ * - non-indexed positions
+ * - centered at origin
+ * - unit bounding-sphere radius
+ * - fresh vertex normals
+ * @param {THREE.BufferGeometry} g
+ * @returns {THREE.BufferGeometry}
+ */
+function normalizeGeometry(g) {
+  let geom = g.index ? g.toNonIndexed() : g;
+  geom.computeBoundingBox();
+  const c = new THREE.Vector3();
+  geom.boundingBox.getCenter(c).negate();
+  geom.translate(c.x, c.y, c.z);
+  geom.computeBoundingSphere();
+  const r = geom.boundingSphere?.radius || 1;
+  if (r > 0) geom.scale(1 / r, 1 / r, 1 / r);
+  geom.computeVertexNormals();
+  geom.computeBoundingSphere();
+  return geom;
+}
+
+/**
+ * Visualizer scene wrapper.
  */
 class Visualizer {
   /**
@@ -187,14 +188,14 @@ class Visualizer {
     this.pal = palette("synth");
     applyBackground(this.pal);
 
-    const sfMain = createStarfield(2200, 60, this.pal, { size: 0.1, opacity: 1.0 });
+    const sfMain = createStarfield(2200, 60, this.pal, { size: 0.10, opacity: 1.0 });
     const sfBlur = createStarfield(2200, 60, this.pal, { size: 0.16, opacity: 0.25 });
     this.starfield = sfMain.points;
     this.starfieldBlur = sfBlur.points;
     this.scene.add(this.starfield);
     this.scene.add(this.starfieldBlur);
 
-    this.subdiv = 3; // higher detail by default
+    this.subdiv = 3;
     this.mesh = this.makeMesh(this.subdiv);
     this.scene.add(this.mesh);
 
@@ -214,9 +215,10 @@ class Visualizer {
 
     this.energy = { bass: 0, mid: 0, treble: 0, overall: 0 };
     this.smooth = { bass: 0, mid: 0, treble: 0, overall: 0 };
-    this.fast = { bass: 0 };                  // fast path for spikes
-    this.smoothK = 0.08;                      // heavy smoothing for feel
-    this.fastK = 0.35;                        // low smoothing just for bass spikes
+    this.fast = { bass: 0 };
+
+    this.smoothK = 0.07;
+    this.fastK = 0.85;
 
     this.baseHSL = { h: 0, s: 1, l: 0.5 };
     this.glowHSL = { h: 0, s: 1, l: 0.5 };
@@ -226,25 +228,32 @@ class Visualizer {
     this.orbit = { phase: 0, baseSpeed: 0.14, a: 0.55, b: 0.33 };
     this._lastTime = 0;
 
+    this.sampleRate = /** @type {AudioContext} */ (this.analyser.context).sampleRate;
+
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.canvas.parentElement || document.body);
     this.resize();
   }
 
   /**
-   * Build or rebuild the mesh with the given subdivision.
+   * Build/rebuild the mesh with stellation shader and wireframe.
    * @param {number} subdiv
    * @returns {THREE.Group}
    */
   makeMesh(subdiv) {
-    if (this.mesh) {
-      this.scene.remove(this.mesh);
-      disposeObject(this.mesh);
-    }
+    if (this.mesh) { this.scene.remove(this.mesh); disposeObject(this.mesh); }
+
     const geo = new THREE.IcosahedronGeometry(1, subdiv);
     const pal = this.pal || palette("synth");
 
-    // Translucent audio-reactive surface with bass stellation. WebGL1-safe.
+    const PHI = (1 + Math.sqrt(5)) / 2;
+    const dirs = [
+      [0, 1, PHI], [0, -1, PHI], [0, 1, -PHI], [0, -1, -PHI],
+      [1, PHI, 0], [-1, PHI, 0], [1, -PHI, 0], [-1, -PHI, 0],
+      [PHI, 0, 1], [-PHI, 0, 1], [PHI, 0, -1], [-PHI, 0, -1]
+    ].map(v => new THREE.Vector3(v[0], v[1], v[2]).normalize());
+    this._stellationDirs = dirs;
+
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
@@ -253,17 +262,20 @@ class Visualizer {
         uDistortion: { value: this.distortion },
         uBaseColor: { value: pal.base.clone() },
         uGlowColor: { value: pal.glow.clone() },
-        uBassFast: { value: 0.0 },            // fast-smoothing bass 0..1
-        uSpike: { value: 0.8 },               // spike strength scalar
-        uSpikeSharp: { value: 8.0 }           // spike sharpness power
+        uBassFast: { value: 0.0 },
+        uSpikeStrength: { value: 1.1 },
+        uSpikeSharp: { value: 6.0 },
+        uDirs: { value: dirs }
       },
       vertexShader: `
         precision highp float;
+        const int DIR_COUNT = 12;
+        uniform vec3 uDirs[DIR_COUNT];
         uniform sampler2D uSpec;
         uniform float uReactivity;
         uniform float uDistortion;
         uniform float uBassFast;
-        uniform float uSpike;
+        uniform float uSpikeStrength;
         uniform float uSpikeSharp;
         varying float vAmp;
         varying vec3 vPos;
@@ -284,17 +296,17 @@ class Visualizer {
           float amp = sampleSpec(band) * uReactivity;
           vAmp = amp;
 
-          // Bias displacement by band + global distortion
           float bias = 0.6 + 0.4 * pow(band, 0.5);
           p += n * amp * bias * uDistortion * 0.5;
 
-          // "Cornerness" metric approximating stellation toward vertices.
-          // For a unit normal, sum(abs(n)) peaks near corners, lower on faces/edges.
-          float corner = (abs(n.x) + abs(n.y) + abs(n.z)) / 1.73205080757; // sqrt(3)
-          vCorner = corner;
+          vCorner = (abs(n.x) + abs(n.y) + abs(n.z)) / 1.73205080757;
 
-          // Bass-driven stellation: sharp spikes with low smoothing using uBassFast.
-          float stell = pow(corner, uSpikeSharp) * uSpike * uBassFast;
+          float m = 0.0;
+          for (int i = 0; i < DIR_COUNT; i++) {
+            float d = max(0.0, dot(n, uDirs[i]));
+            m = max(m, pow(d, uSpikeSharp));
+          }
+          float stell = m * uSpikeStrength * uBassFast;
           p += n * stell;
 
           vPos = p;
@@ -317,19 +329,18 @@ class Visualizer {
           float scan = 0.08 * sin(140.0 * vPos.y + uTime * 2.0);
           col += scan;
 
-          // Translucency: more opaque at corners/spikes, more see-through on flats.
-          float alpha = 0.55 + 0.35 * pow(clamp(vCorner, 0.0, 1.0), 0.75);
+          float alpha = 0.50 + 0.40 * pow(clamp(vCorner, 0.0, 1.0), 0.75);
           gl_FragColor = vec4(col, alpha);
         }
       `,
       transparent: true,
-      depthWrite: false,          // let glow and stars shine through
+      depthWrite: false,
       blending: THREE.NormalBlending,
       wireframe: false
     });
 
-    // Wireframe overlay, slightly brighter and more transparent
-    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: pal.line, wireframe: true, transparent: true, opacity: 0.28 }));
+    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: pal.line, wireframe: true, transparent: true, opacity: 0.24 }));
+
     const group = new THREE.Group();
     const solid = new THREE.Mesh(geo, mat);
     group.add(solid);
@@ -338,24 +349,45 @@ class Visualizer {
     return group;
   }
 
-  /**
-   * Update FFT, compute band energies, with separate fast bass channel for spikes.
-   */
+  /** Replace geometry while reusing materials/uniforms. */
+  setGeometry(raw) {
+    const geom = normalizeGeometry(raw);
+    const solid = /** @type {THREE.Mesh} */ (this.mesh.children[0]);
+    const wire = /** @type {THREE.Mesh} */ (this.mesh.children[1]);
+
+    const oldSolidGeo = solid.geometry;
+    solid.geometry = geom.clone();
+    oldSolidGeo?.dispose?.();
+
+    const oldWireGeo = wire.geometry;
+    wire.geometry = geom.clone();
+    oldWireGeo?.dispose?.();
+
+    this.camera.position.z = 3.5 / (this.zoom || 1);
+  }
+
+  /** Map Hz to FFT index using the analyser's sampleRate. */
+  freqToIndex(hz) {
+    const nyq = this.sampleRate * 0.5;
+    const frac = clamp(hz / nyq, 0, 1);
+    return Math.round(frac * (this.spec.length - 1));
+  }
+
+  /** Update FFT + bands. Hard bass clamp ~200 Hz with minimal smoothing. */
   updateFFTAndBands() {
     this.analyser.getByteFrequencyData(this.spec);
     const N = this.spec.length;
-    const avg = (lo, hi) => {
-      const i0 = Math.max(0, Math.floor(lo * N));
-      const i1 = Math.min(N, Math.ceil(hi * N));
+
+    const avg = (i0, i1) => {
       let s = 0, c = 0;
-      for (let i = i0; i < i1; i++) { s += this.spec[i]; c++; }
+      for (let i = Math.max(0, i0); i <= Math.min(N - 1, i1); i++) { s += this.spec[i]; c++; }
       return c ? (s / (c * 255)) : 0;
     };
 
-    const bass = avg(0.001, 0.10);
-    const mid = avg(0.12, 0.45);
-    const treble = avg(0.45, 0.90);
-    const overall = avg(0.02, 0.90);
+    const bass = avg(0, this.freqToIndex(200));
+    const mid = avg(this.freqToIndex(300), this.freqToIndex(2000));
+    const treble = avg(this.freqToIndex(2000), this.freqToIndex(16000));
+    const overall = avg(this.freqToIndex(40), this.freqToIndex(16000));
 
     this.energy.bass = bass; this.energy.mid = mid; this.energy.treble = treble; this.energy.overall = overall;
 
@@ -365,15 +397,12 @@ class Visualizer {
     this.smooth.treble = lerp(this.smooth.treble, treble, k);
     this.smooth.overall = lerp(this.smooth.overall, overall, k);
 
-    // fast bass for spikes
     this.fast.bass = lerp(this.fast.bass, bass, this.fastK);
 
     this.specTex.needsUpdate = true;
   }
 
-  /**
-   * Handle resizes, clamping DPR to sane values.
-   */
+  /** Resize renderer + passes. */
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -386,10 +415,7 @@ class Visualizer {
     this.composer.setSize(w, h);
   }
 
-  /**
-   * Render one animation frame.
-   * @param {number} t_ms
-   */
+  /** Per-frame update. */
   frame(t_ms) {
     const t = t_ms * 0.001;
     const dt = this._lastTime ? Math.min(0.1, t - this._lastTime) : 0.016;
@@ -401,7 +427,6 @@ class Visualizer {
     this.yaw += (this.targetYaw - this.yaw) * damp;
     this.pitch += (this.targetPitch - this.pitch) * damp;
     this.pitch = clamp(this.pitch, -1.2, 1.2);
-
     const gyroX = this.gyro.on ? this.gyro.roll * 0.5 : 0;
     const gyroY = this.gyro.on ? this.gyro.pitch * 0.5 : 0;
 
@@ -436,29 +461,27 @@ class Visualizer {
       this.starfieldBlur.position.y = lerp(this.starfieldBlur.position.y || 0, -bpy, 0.10);
     }
 
-    const solid = this.mesh.children[0];
-    const mat = solid.material;
+    const solid = /** @type {THREE.Mesh} */ (this.mesh.children[0]);
+    const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
     mat.uniforms.uTime.value = t;
     mat.uniforms.uReactivity.value = 0.9 + 2.6 * this.smooth.overall;
     mat.uniforms.uDistortion.value = this.distortion;
     mat.uniforms.uBassFast.value = this.fast.bass;
 
     const shift = this.smooth.mid * 0.45;
-    const h1 = (this.baseHSL.h + shift) % 1;
-    const h2 = (this.glowHSL.h + shift * 1.2) % 1;
-    mat.uniforms.uBaseColor.value.setHSL(h1, this.baseHSL.s, this.baseHSL.l);
-    mat.uniforms.uGlowColor.value.setHSL(h2, this.glowHSL.s, this.glowHSL.l);
+    const baseH = (this.baseHSL.h + shift) % 1;
+    const glowH = (this.glowHSL.h + shift * 1.2) % 1;
+    mat.uniforms.uBaseColor.value.setHSL(baseH, this.baseHSL.s, this.baseHSL.l);
+    mat.uniforms.uGlowColor.value.setHSL(glowH, this.glowHSL.s, this.glowHSL.l);
 
     this.composer.render();
   }
 
-  /**
-   * Rebuild starfield on palette change.
-   */
+  /** Rebuild starfield on palette change. */
   rebuildStarfield() {
     if (this.starfield) { this.scene.remove(this.starfield); disposeObject(this.starfield); }
     if (this.starfieldBlur) { this.scene.remove(this.starfieldBlur); disposeObject(this.starfieldBlur); }
-    const sfMain = createStarfield(2200, 60, this.pal, { size: 0.1, opacity: 1.0 });
+    const sfMain = createStarfield(2200, 60, this.pal, { size: 0.10, opacity: 1.0 });
     const sfBlur = createStarfield(2200, 60, this.pal, { size: 0.16, opacity: 0.25 });
     this.starfield = sfMain.points;
     this.starfieldBlur = sfBlur.points;
@@ -468,7 +491,31 @@ class Visualizer {
 }
 
 /**
- * Wire the page.
+ * Load an STL and apply it to the visualizer.
+ * @param {string} url
+ * @param {Visualizer} viz
+ */
+function loadSTL(url, viz) {
+  const loader = new STLLoader();
+  loader.load(
+    url,
+    (geometry) => {
+      try {
+        viz.setGeometry(geometry);
+        console.info("[STL] Loaded:", url);
+      } catch (err) {
+        console.error("[STL] Failed to apply geometry:", err);
+      } finally {
+        geometry?.dispose?.();
+      }
+    },
+    undefined,
+    (err) => console.error("[STL] Error loading", url, err)
+  );
+}
+
+/**
+ * Bootstraps UI + audio + animation.
  */
 (async function main() {
   const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("stage"));
@@ -491,7 +538,9 @@ class Visualizer {
 
   const DEFAULT_TRACK = "/audio/singularity_320k.mp3";
 
+  /** True if <audio> has no explicit src attribute. */
   function hasEmptySrc(el) { const raw = el.getAttribute("src"); return !raw || raw.trim() === ""; }
+  /** Ensure default track if nothing set. */
   function ensureDefaultTrack(el) { if (hasEmptySrc(el)) { el.src = DEFAULT_TRACK; stat && (stat.textContent = "Loaded default: Singularity"); } }
 
   /** @type {AudioContext | null} */ let actx = null;
@@ -503,7 +552,7 @@ class Visualizer {
     const src = actx.createMediaElementSource(audio);
     analyser = actx.createAnalyser();
     analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.82;
+    analyser.smoothingTimeConstant = 0.30; // snappier bass
     src.connect(analyser).connect(actx.destination);
   }
 
@@ -512,13 +561,16 @@ class Visualizer {
 
   const viz = new Visualizer(canvas, /** @type {AnalyserNode} */ (analyser));
 
+  // Load your STL model from /public/spikeball.stl (served as /spikeball.stl)
+  loadSTL("/spikeball.stl", viz);
+
+  // Controls
   canvas.addEventListener("pointerdown", (e) => { viz.dragging = true; viz.lastX = e.clientX; viz.lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
   canvas.addEventListener("pointermove", (e) => {
     if (!viz.dragging) return;
-    const dx = e.clientX - viz.lastX; const dy = e.clientY - viz.lastY;
+    const dx = e.clientX - viz.lastX, dy = e.clientY - viz.lastY;
     viz.lastX = e.clientX; viz.lastY = e.clientY;
-    viz.targetYaw += dx * 0.002;
-    viz.targetPitch += dy * 0.002;
+    viz.targetYaw += dx * 0.002; viz.targetPitch += dy * 0.002;
   });
   canvas.addEventListener("pointerup", (e) => { viz.dragging = false; canvas.releasePointerCapture(e.pointerId); });
   canvas.addEventListener("wheel", (e) => { e.preventDefault(); viz.zoom = clamp(viz.zoom * Math.exp(-e.deltaY * 0.001), 0.6, 2.5); viz.camera.position.z = 3.5 / viz.zoom; }, { passive: false });
@@ -535,21 +587,21 @@ class Visualizer {
   hookRange(res, resv, (v) => { viz.subdiv = v | 0; viz.mesh = viz.makeMesh(viz.subdiv); viz.scene.add(viz.mesh); });
   hookRange(bloom, bloomv, (v) => { viz.bloomPass.strength = v; });
 
-  paletteSel.addEventListener("change", () => {
+  paletteSel?.addEventListener("change", () => {
     viz.pal = palette(paletteSel.value);
     applyBackground(viz.pal);
-    const solid = viz.mesh.children[0];
-    const mat = solid.material;
+    const solid = /** @type {THREE.Mesh} */ (viz.mesh.children[0]);
+    const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
     viz.pal.base.getHSL(viz.baseHSL);
     viz.pal.glow.getHSL(viz.glowHSL);
     mat.uniforms.uBaseColor.value.copy(viz.pal.base);
     mat.uniforms.uGlowColor.value.copy(viz.pal.glow);
     viz.rebuildStarfield();
-    const wire = viz.mesh.children[1];
-    wire.material.color = viz.pal.line;
+    const wire = /** @type {THREE.Mesh} */ (viz.mesh.children[1]);
+    /** @type {THREE.MeshBasicMaterial} */ (wire.material).color = viz.pal.line;
   });
 
-  fileInput.addEventListener("change", () => {
+  fileInput?.addEventListener("change", () => {
     const f = fileInput.files && fileInput.files[0];
     if (!f) { ensureDefaultTrack(audio); return; }
     const url = URL.createObjectURL(f);
@@ -557,13 +609,13 @@ class Visualizer {
     stat && (stat.textContent = `Loaded ${f.name}`);
   });
 
-  function setPlayingUI(on) { document.getElementById("play").textContent = on ? "⏸ Pause" : "▶︎ Play"; stat && (stat.textContent = on ? "Playing" : "Paused"); }
+  function setPlayingUI(on) { if (playBtn) playBtn.textContent = on ? "⏸ Pause" : "▶︎ Play"; stat && (stat.textContent = on ? "Playing" : "Paused"); }
   audio.addEventListener("play", () => setPlayingUI(true));
   audio.addEventListener("pause", () => setPlayingUI(false));
   audio.addEventListener("ended", () => setPlayingUI(false));
   audio.addEventListener("error", () => { stat && (stat.textContent = "Audio error: check file or default track path."); });
 
-  document.getElementById("play").addEventListener("click", async () => {
+  playBtn?.addEventListener("click", async () => {
     ensureDefaultTrack(audio);
     if (audio.paused || audio.ended) {
       if (!actx) await ensureAudio();
@@ -593,7 +645,7 @@ class Visualizer {
     viz.gyro.roll = roll;
     viz.gyro.pitch = pitch;
   }
-  gyroBtn.addEventListener("click", toggleGyro);
+  gyroBtn?.addEventListener("click", toggleGyro);
 
   function loop(t) { viz.frame(t); requestAnimationFrame(loop); }
   requestAnimationFrame(loop);
