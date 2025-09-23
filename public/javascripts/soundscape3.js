@@ -225,7 +225,7 @@ class Visualizer {
     // Energies with smoothing
     this.energy = { bass: 0, mid: 0, treble: 0, overall: 0 };
     this.smooth = { bass: 0, mid: 0, treble: 0, overall: 0 };
-    this.smoothK = 0.08; // strong smoothing
+    this.smoothK = 0.03; // strong smoothing
 
     // Base HSLs for hue-shift
     this.baseHSL = { h: 0, s: 1, l: 0.5 };
@@ -401,8 +401,8 @@ class Visualizer {
 
     // Bass-driven zoom
     const baseZ = 3.5 / this.zoom;
-    const targetZ = baseZ - 0.7 * this.smooth.bass; // stronger bass zoom
-    this.camera.position.z += (targetZ - this.camera.position.z) * 0.10;
+    const targetZ = baseZ - 0.9 * this.smooth.bass; // stronger bass zoom
+    this.camera.position.z += (targetZ - this.camera.position.z) * 0.15;
 
     // Non-circular orbit around sphere, treble->speed
     const speed = this.orbit.baseSpeed + 0.70 * this.smooth.treble + 0.20 * this.smooth.overall;
