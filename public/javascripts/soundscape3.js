@@ -100,7 +100,7 @@ function createStarfield(count, radius, pal) {
   geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   geom.setAttribute("color", new THREE.BufferAttribute(col, 3));
 
-  const mat = new THREE.PointsMaterial({ size: 0.025, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+  const mat = new THREE.PointsMaterial({ size: 0.06, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
   const points = new THREE.Points(geom, mat);
   points.renderOrder = -10;
   return points;
@@ -170,11 +170,11 @@ class Visualizer {
     // Scene + camera
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
-    this.camera.position.set(0, 0, 3.5);
+    this.camera.position.set(0, 0, 4.0);
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false });
-    this.renderer.setClearColor("#050007", 1);
+    this.renderer.setClearColor("#010002", 1);
 
     // Scene background: black to deep purple gradient (screen-space)
     this.scene.background = makeRadialBackgroundTexture("#000000", "#12001f");
@@ -499,7 +499,7 @@ class Visualizer {
     actx = new (window.AudioContext || window.webkitAudioContext)();
     const src = actx.createMediaElementSource(audio);
     analyser = actx.createAnalyser();
-    analyser.fftSize = 2048;                          // enough bins for band splits
+    analyser.fftSize = 4096;                          // enough bins for band splits
     analyser.smoothingTimeConstant = 0.82;            // keep native smoothing, we add our own too
     src.connect(analyser).connect(actx.destination);
   }
