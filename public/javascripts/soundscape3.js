@@ -177,7 +177,7 @@ class Visualizer {
     this.renderer.setClearColor("#010002", 1);
 
     // Scene background: black to deep purple gradient (screen-space)
-    this.scene.background = makeRadialBackgroundTexture("#000000", "#12001f");
+    this.scene.background = makeRadialBackgroundTexture("#12001f", "#000000");
 
     // Post
     this.composer = new EffectComposer(this.renderer);
