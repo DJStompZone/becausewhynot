@@ -132,6 +132,30 @@ function disposeObject(obj) {
 }
 
 /**
+ * Create a screen-space radial gradient texture for the scene background.
+ * Center: near-black, Edge: deep purple. Cheap and works in WebGL1.
+ * @param {string} inner - CSS color at the center
+ * @param {string} outer - CSS color at the edge
+ * @returns {THREE.Texture}
+ */
+function makeRadialBackgroundTexture(inner = "#000000", outer = "#130020") {
+  const s = 512;
+  const cvs = document.createElement("canvas");
+  cvs.width = s; cvs.height = s;
+  const ctx = cvs.getContext("2d");
+  const g = ctx.createRadialGradient(s * 0.5, s * 0.6, s * 0.05, s * 0.5, s * 0.6, s * 0.7);
+  g.addColorStop(0.0, inner);
+  g.addColorStop(1.0, outer);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, s, s);
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.generateMipmaps = false;
+  return tex;
+}
+
+/**
  * Visualizer scene wrapper.
  */
 class Visualizer {
@@ -150,7 +174,10 @@ class Visualizer {
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance", preserveDrawingBuffer: false });
-    this.renderer.setClearColor("#0a0b10", 1);
+    this.renderer.setClearColor("#050007", 1);
+
+    // Scene background: black to deep purple gradient (screen-space)
+    this.scene.background = makeRadialBackgroundTexture("#000000", "#12001f");
 
     // Post
     this.composer = new EffectComposer(this.renderer);
@@ -184,7 +211,7 @@ class Visualizer {
     this.rotationSpeed = 0.7;
     this.reactivity = 1.0;
     this.distortion = 1.2;
-    this.zoom = 1.0;
+    this.zoom = 0.7;
 
     this.targetYaw = 0;
     this.targetPitch = 0;
@@ -285,7 +312,7 @@ class Visualizer {
       wireframe: false
     });
 
-    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: pal.line, wireframe: true, transparent: true, opacity: 0.2 }));
+    const wire = new THREE.Mesh(geo.clone(), new THREE.MeshBasicMaterial({ color: pal.line, wireframe: true, transparent: true, opacity: 0.12 }));
     const group = new THREE.Group();
     const solid = new THREE.Mesh(geo, mat);
     group.add(solid);
@@ -311,9 +338,9 @@ class Visualizer {
     };
 
     // Rough bands that work across unknown sampleRates
-    const bass = avg(0.00, 0.08);       // ~ <200Hz-ish
-    const mid = avg(0.12, 0.40);        // ~ 300-2000Hz
-    const treble = avg(0.40, 0.90);     // ~ 2k-18kHz
+    const bass = avg(0.001, 0.1);       // ~ <200Hz-ish
+    const mid = avg(0.12, 0.45);        // ~ 300-2000Hz
+    const treble = avg(0.45, 0.90);     // ~ 2k-18kHz
     const overall = avg(0.02, 0.90);
 
     this.energy.bass = bass;
@@ -423,7 +450,7 @@ class Visualizer {
       this.scene.remove(this.starfield);
       disposeObject(this.starfield);
     }
-    this.starfield = createStarfield(2200, 40, this.pal);
+    this.starfield = createStarfield(2200, 60, this.pal);
     this.scene.add(this.starfield);
   }
 }
