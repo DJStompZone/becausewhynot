@@ -9,7 +9,10 @@
  * License: MIT
  */
 (function () {
-  function isMobile() { return window.matchMedia("(max-width: 900px)").matches; }
+  function isMobile() {
+      return window.matchMedia("(orientation: portrait), (max-width: 1024px), (hover: none) and (pointer: coarse)").matches;
+  }
+
   function setOpen(el, open) { if (el) el.dataset.open = String(!!open); }
   function getOpen(el) { return el && el.dataset.open === "true"; }
 
