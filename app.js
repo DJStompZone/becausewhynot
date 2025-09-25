@@ -52,4 +52,13 @@ app.use(function (err, req, res, next) {
   res.render("error");
 });
 
+// Serve app if running with node
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`BWN Visualizer running at http://localhost:${PORT}/`);
+  });
+}
+
 module.exports = app;
+
