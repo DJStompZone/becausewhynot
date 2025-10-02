@@ -1,3 +1,4 @@
+
 import * as THREE from "three";
 import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
@@ -5,14 +6,15 @@ import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/po
 import { Config } from "Config";
 import { applyBackground, lerp, clamp, palette } from "Utility";
 
-/* ============================== Visualizer ============================== */
+/**
+ * Visualizer
+ */
 export class Visualizer {
   constructor(canvas, analyser) {
-    // Lights
     this.canvas = canvas;
     this.analyser = analyser;
 
-    // Camera
+    // Scene & Camera
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
     this.camera.position.set(0, 0, 3.5);
@@ -20,64 +22,61 @@ export class Visualizer {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       antialias: true,
-      alpha: false,
+      alpha: true,
       powerPreference: "high-performance",
       preserveDrawingBuffer: false,
     });
-    this.renderer.setClearColor("#050007", 1);
-    this.scene.background = makeRadialBackgroundTexture();
-
+    this.renderer.setClearColor(0x000000, 0);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.85;
 
-    // Action
+    // PostFX
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(this.scene, this.camera);
     const { strength, radius, threshold } = Config.get().bloom;
     this.baseBloomStrength = strength;
-    this.bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(1, 1),
-      strength,
-      radius,
-      threshold
-    );
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), strength, radius, threshold);
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
 
-    // Math is fun
+    // FFT Texture — WebGL2-safe (R8)
     this.fftBins = this.analyser.frequencyBinCount;
     this.spec = new Uint8Array(this.fftBins);
-    this.specTex = new THREE.DataTexture(
-      this.spec,
-      this.fftBins,
-      1,
-      THREE.LuminanceFormat
-    );
+    this.specTex = new THREE.DataTexture(this.spec, this.fftBins, 1, THREE.RedFormat, THREE.UnsignedByteType);
     this.specTex.needsUpdate = true;
     this.specTex.minFilter = THREE.LinearFilter;
     this.specTex.magFilter = THREE.LinearFilter;
+    this.specTex.generateMipmaps = false;
+    this.specTex.flipY = false;
 
-    // Pretty colors
+    // Palette
     this.pal = palette("burn");
-    applyBackground(this.pal);
+    applyBackground(this.pal); // CSS backdrop
 
-    // Boldly go
+    function mixHex(a, b, t) {
+      const ai = parseInt(a.replace("#",""), 16), bi = parseInt(b.replace("#",""), 16);
+      const ar = (ai >> 16) & 255, ag = (ai >> 8) & 255, ab = ai & 255;
+      const br = (bi >> 16) & 255, bg = (bi >> 8) & 255, bb = bi & 255;
+      const r = Math.round(ar + (br - ar) * t), g = Math.round(ag + (bg - ag) * t), bl = Math.round(ab + (bb - ab) * t);
+      return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
+    }
+
+    // GPU backdrop (radial) — set at startup
+    const mid0 = mixHex(this.pal.bgTop, this.pal.bgBot, 0.5);
+    this._bgTex = makeRadialBackgroundTexture(this.pal.bgTop, mid0, this.pal.bgBot);
+    this.scene.background = this._bgTex;
+
+    // Starfields
     const cf = Config.get().starfield;
-    const sfMain = createStarfield(cf.mainCount, cf.radius, this.pal, {
-      size: cf.mainSize,
-      opacity: cf.mainOpacity,
-    });
-    const sfBlur = createStarfield(cf.blurCount, cf.radius - 2, this.pal, {
-      size: cf.blurSize,
-      opacity: cf.blurOpacity,
-    });
+    const sfMain = createStarfield(cf.mainCount, cf.radius, this.pal, { size: cf.mainSize, opacity: cf.mainOpacity });
+    const sfBlur = createStarfield(cf.blurCount, cf.radius - 2, this.pal, { size: cf.blurSize, opacity: cf.blurOpacity });
     this.starfield = sfMain.points;
     this.starfieldBlur = sfBlur.points;
     this.scene.add(this.starfield);
     this.scene.add(this.starfieldBlur);
 
-    // Mesh > mush
+    // Mesh config
     const mx = Config.get().mesh;
     this.subdiv = mx.subdiv;
     this.rotationSpeed = mx.rotationSpeed;
@@ -127,9 +126,7 @@ export class Visualizer {
     };
     this._lastTime = 0;
 
-    this.sampleRate = /** @type {AudioContext} */ (
-      this.analyser.context
-    ).sampleRate;
+    this.sampleRate = /** @type {AudioContext} */ (this.analyser.context).sampleRate;
 
     this.lights = Config.get().lights;
     this.liquid = { ...Config.get().liquid };
@@ -138,13 +135,45 @@ export class Visualizer {
     this.flowSpeed = this.liquid.flow;
     this.flowPhase = 0;
 
+    // Geometry
     this.mesh = this.makeMesh(this.subdiv);
     this.scene.add(this.mesh);
 
-    // Size does matter
+    // Resize
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.canvas.parentElement || document.body);
     this.resize();
+  }
+
+  /**
+   * Swap palettes at runtime and refresh everything that visually depends on it.
+   * Call this from the dropdown change handler.
+   * @param {string} id
+   */
+  setPalette(id) {
+    this.pal = palette(id);
+
+    // Update CSS gradient
+    applyBackground(this.pal);
+
+    // Update GPU radial background, disposing the old one to avoid leaks
+    if (this._bgTex && typeof this._bgTex.dispose === "function") this._bgTex.dispose();
+    const mid = mixHex(this.pal.bgTop, this.pal.bgBot, 0.5);
+    this._bgTex = makeRadialBackgroundTexture(this.pal.bgTop, mid, this.pal.bgBot);
+    this.scene.background = this._bgTex;
+
+    // Update HSL caches (used by frame() hue drift)
+    this.pal.base.getHSL(this.baseHSL);
+    this.pal.glow.getHSL(this.glowHSL);
+
+    // Push raw palette colors once (frame() will animate hue each tick)
+    const solid = /** @type {THREE.Mesh} */ (this.mesh.children[0]);
+    const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
+    mat.uniforms.uBaseColor.value.copy(this.pal.base);
+    mat.uniforms.uGlowColor.value.copy(this.pal.glow);
+
+    // Rebuild starfields so their baked vertex colors pick up new glow hue
+    this.rebuildStarfield();
   }
 
   makeMesh(subdiv) {
@@ -154,28 +183,16 @@ export class Visualizer {
     }
 
     const geo = new THREE.IcosahedronGeometry(1, subdiv);
-    const targetAttr = new THREE.Float32BufferAttribute(
-      new Float32Array(geo.attributes.position.array.length),
-      3
-    );
+    const targetAttr = new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.array.length), 3);
     geo.setAttribute("target", targetAttr);
 
     const pal = this.pal || palette("synth");
 
     const PHI = (1 + Math.sqrt(5)) / 2;
     const dirs = [
-      [0, 1, PHI],
-      [0, -1, PHI],
-      [0, 1, -PHI],
-      [0, -1, -PHI],
-      [1, PHI, 0],
-      [-1, PHI, 0],
-      [1, -PHI, 0],
-      [-1, -PHI, 0],
-      [PHI, 0, 1],
-      [-PHI, 0, 1],
-      [PHI, 0, -1],
-      [-PHI, 0, -1],
+      [0, 1, PHI],[0, -1, PHI],[0, 1, -PHI],[0, -1, -PHI],
+      [1, PHI, 0],[-1, PHI, 0],[1, -PHI, 0],[-1, -PHI, 0],
+      [PHI, 0, 1],[-PHI, 0, 1],[PHI, 0, -1],[-PHI, 0, -1],
     ].map((v) => new THREE.Vector3(v[0], v[1], v[2]).normalize());
     this._stellationDirs = dirs;
 
@@ -278,13 +295,11 @@ export class Visualizer {
       uniform vec3 uBaseColor;
       uniform vec3 uGlowColor;
 
-      // Lights
       uniform vec3 uKeyDir; uniform vec3 uFillDir; uniform vec3 uRimDir;
       uniform vec3 uKeyCol; uniform vec3 uFillCol; uniform vec3 uRimCol;
       uniform float uKeyI; uniform float uFillI; uniform float uRimI;
 
-      // Liquid
-      uniform float uLiquid; // 0..1
+      uniform float uLiquid;
       uniform float uRoughness;
       uniform float uMetallic;
       uniform float uFlowPhase;
@@ -375,7 +390,6 @@ export class Visualizer {
 
         float shininess = mix(16.0, 96.0, clamp(uMetallic, 0.0, 1.0)) * (1.0 - 0.6 * clamp(uRoughness, 0.0, 1.0));
 
-        // Lighting
         vec3 colLit = vec3(0.0);
         colLit += blinnPhong(N, V, normalize(uKeyDir),  uKeyCol,  uKeyI,  shininess);
         colLit += blinnPhong(N, V, normalize(uFillDir), uFillCol, uFillI, shininess);
@@ -383,7 +397,6 @@ export class Visualizer {
 
         vec3 litTinted = colLit * baseCol;
         vec3 col = mix(baseCol, litTinted, uLiquid);
-        // Reinhard tone mapping
         col = col / (1.0 + col);
 
         float alpha = 0.55 + 0.40 * pow(clamp(vCorner, 0.0, 1.0), 0.75);
@@ -582,7 +595,7 @@ export class Visualizer {
     mat.uniforms.uMorph.value = this.morphEnv;
     mat.uniforms.uBassFast.value = gate * x;
 
-    // Palette hue drift
+    // Palette hue drift (now respects runtime palette changes)
     const shift = this.smooth.mid * 0.45;
     this.pal.base.getHSL(this.baseHSL);
     this.pal.glow.getHSL(this.glowHSL);
@@ -605,7 +618,7 @@ export class Visualizer {
     mat.uniforms.uFlowPhase.value = this.flowPhase;
 
     const energy = clamp(this.smooth.overall, 0, 1);
-    const lightScale = 0.95 - 0.55 * energy; // 1.0..0.4
+    const lightScale = 0.95 - 0.55 * energy;
     mat.uniforms.uKeyI.value = this.lights.keyIntensity * lightScale;
     mat.uniforms.uFillI.value = this.lights.fillIntensity * lightScale;
     mat.uniforms.uRimI.value = this.lights.rimIntensity * lightScale;
@@ -648,7 +661,9 @@ export class Visualizer {
   }
 }
 
-/** Starfield */
+/**
+ * Starfield — colored around pal.glow hue at construction time. Rebuild when the palette changes.
+ */
 export function createStarfield(count, radius, pal, opts = {}) {
   const size = opts.size ?? 0.1,
     opacity = opts.opacity ?? 1.0;
@@ -668,7 +683,7 @@ export function createStarfield(count, radius, pal, opts = {}) {
     pos[j] = x;
     pos[j + 1] = y;
     pos[j + 2] = z;
-    const h = (glowHSL.h + (Math.random() * 0.1 - 0.05) + 1) % 1,
+    const h = (glowHSL.h + (Math.random() * 0.1 - 0.05) + 1.0) % 1.0,
       s = 0.85 + Math.random() * 0.15,
       l = 0.7 + Math.random() * 0.3;
     const c = new THREE.Color().setHSL(h, s, l);
@@ -692,9 +707,15 @@ export function createStarfield(count, radius, pal, opts = {}) {
   return { points, geom, mat };
 }
 
-
-/** Dark radial background for the scene */
-export function makeRadialBackgroundTexture() {
+/**
+ * Optional scene bg texture builder — now palette-driven if you want to use it.
+ * Keep scene.background = null to let CSS show through, or set it to this texture.
+ */
+export function makeRadialBackgroundTexture(
+  top = "#000000",
+  mid = "#0a0018",
+  bot = "#1a0033"
+) {
   const s = 512,
     cvs = document.createElement("canvas");
   cvs.width = s;
@@ -708,9 +729,9 @@ export function makeRadialBackgroundTexture() {
     s * 0.55,
     s * 0.7
   );
-  g.addColorStop(0.0, "#000000");
-  g.addColorStop(0.5, "#0a0018");
-  g.addColorStop(1.0, "#1a0033");
+  g.addColorStop(0.0, top);
+  g.addColorStop(0.5, mid);
+  g.addColorStop(1.0, bot);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, s, s);
   const tex = new THREE.CanvasTexture(cvs);
@@ -719,6 +740,7 @@ export function makeRadialBackgroundTexture() {
   tex.generateMipmaps = false;
   return tex;
 }
+
 export function disposeObject(obj) {
   obj.traverse((o) => {
     if (o.geometry) o.geometry.dispose?.();
@@ -727,6 +749,7 @@ export function disposeObject(obj) {
     else m?.dispose?.();
   });
 }
+
 export function smoothstepEdge(a, b, x) {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);

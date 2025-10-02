@@ -17,47 +17,23 @@ import { Config } from "Config";
 /* ============================== Bootstrap ============================== */
 
 (async function main() {
-  const canvas = /** @type {HTMLCanvasElement} */ (
-    document.getElementById("stage")
-  );
-  const audio = /** @type {HTMLAudioElement} */ (
-    document.getElementById("player")
-  );
-  const fileInput = /** @type {HTMLInputElement} */ (
-    document.getElementById("file")
-  );
+  const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById("stage"));
+  const audio = /** @type {HTMLAudioElement} */ (document.getElementById("player"));
+  const fileInput = /** @type {HTMLInputElement} */ (document.getElementById("file"));
   const rot = /** @type {HTMLInputElement} */ (document.getElementById("rot"));
   const rotv = /** @type {HTMLSpanElement} */ (document.getElementById("rotv"));
-  const dist = /** @type {HTMLInputElement} */ (
-    document.getElementById("dist")
-  );
-  const distv = /** @type {HTMLSpanElement} */ (
-    document.getElementById("distv")
-  );
-  const react = /** @type {HTMLInputElement} */ (
-    document.getElementById("react")
-  );
-  const reactv = /** @type {HTMLSpanElement} */ (
-    document.getElementById("reactv")
-  );
+  const dist = /** @type {HTMLInputElement} */ (document.getElementById("dist"));
+  const distv = /** @type {HTMLSpanElement} */ (document.getElementById("distv"));
+  const react = /** @type {HTMLInputElement} */ (document.getElementById("react"));
+  const reactv = /** @type {HTMLSpanElement} */ (document.getElementById("reactv"));
   const res = /** @type {HTMLInputElement} */ (document.getElementById("res"));
   const resv = /** @type {HTMLSpanElement} */ (document.getElementById("resv"));
-  const bloom = /** @type {HTMLInputElement} */ (
-    document.getElementById("bloom")
-  );
-  const bloomv = /** @type {HTMLSpanElement} */ (
-    document.getElementById("bloomv")
-  );
-  const playBtn = /** @type {HTMLButtonElement} */ (
-    document.getElementById("play")
-  );
-  const gyroBtn = /** @type {HTMLButtonElement} */ (
-    document.getElementById("gyro")
-  );
+  const bloom = /** @type {HTMLInputElement} */ (document.getElementById("bloom"));
+  const bloomv = /** @type {HTMLSpanElement} */ (document.getElementById("bloomv"));
+  const playBtn = /** @type {HTMLButtonElement} */ (document.getElementById("play"));
+  const gyroBtn = /** @type {HTMLButtonElement} */ (document.getElementById("gyro"));
   const stat = /** @type {HTMLSpanElement} */ (document.getElementById("stat"));
-  const paletteSel = /** @type {HTMLSelectElement} */ (
-    document.getElementById("palette")
-  );
+  const paletteSel = /** @type {HTMLSelectElement} */ (document.getElementById("palette"));
 
   const DEFAULT_TRACK = "/audio/GoodLuckWithThat_Redux.mp3";
   function hasEmptySrc(el) {
@@ -71,8 +47,7 @@ import { Config } from "Config";
     }
   }
 
-  let actx = null,
-    analyser = null;
+  let actx = null, analyser = null;
   async function ensureAudio() {
     if (actx) return;
     actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -90,10 +65,25 @@ import { Config } from "Config";
   // Precompute morph target from STL
   loadAndBakeSTLMorph("/spikeball.stl", viz).catch((e) => console.error(e));
 
+  // ---------- Helpers ----------
+  /**
+   * Push viz.pal colors into both solid and wire shader uniforms and refresh CSS bg.
+   * Avoids the “solid updated, wire stuck in 1999” problem.
+   */
+  function applyPaletteToMaterialsAndUI() {
+    const solid = /** @type {THREE.Mesh} */ (viz.mesh.children[0]);
+    // const wire = /** @type {THREE.Mesh} */ (viz.mesh.children[1]);
+    const ms = /** @type {THREE.ShaderMaterial} */ (solid.material);
+    // const mw = /** @type {THREE.ShaderMaterial} */ (wire.material);
+    ms.uniforms.uBaseColor.value.copy(viz.pal.base);
+    ms.uniforms.uGlowColor.value.copy(viz.pal.glow);
+    // mw.uniforms.uBaseColor.value.copy(viz.pal.base);
+    // mw.uniforms.uGlowColor.value.copy(viz.pal.glow);
+    applyBackground(viz.pal);
+  }
+
   // Drag controls
-  let dragging = false,
-    lastX = 0,
-    lastY = 0;
+  let dragging = false, lastX = 0, lastY = 0;
   canvas.addEventListener("pointerdown", (e) => {
     dragging = true;
     lastX = e.clientX;
@@ -102,52 +92,33 @@ import { Config } from "Config";
   });
   canvas.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    const dx = e.clientX - lastX,
-      dy = e.clientY - lastY;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
-    viz.angVelY = clamp(
-      viz.angVelY + dx * viz.dragSensitivity,
-      -viz.maxOmega,
-      viz.maxOmega
-    );
-    viz.angVelX = clamp(
-      viz.angVelX + dy * viz.dragSensitivity,
-      -viz.maxOmega,
-      viz.maxOmega
-    );
+    viz.angVelY = clamp(viz.angVelY + dx * viz.dragSensitivity, -viz.maxOmega, viz.maxOmega);
+    viz.angVelX = clamp(viz.angVelX + dy * viz.dragSensitivity, -viz.maxOmega, viz.maxOmega);
   });
   canvas.addEventListener("pointerup", (e) => {
     dragging = false;
     canvas.releasePointerCapture(e.pointerId);
   });
 
-  // Hue wheel
-  canvas.addEventListener(
-    "wheel",
-    (e) => {
-      e.preventDefault();
-      viz.pal.base.getHSL(viz.baseHSL);
-      viz.pal.glow.getHSL(viz.glowHSL);
-      let h = (viz.baseHSL.h + (e.deltaY > 0 ? -0.02 : 0.02) + 1) % 1;
-      viz.pal.base.setHSL(h, viz.baseHSL.s, viz.baseHSL.l);
-      h = (viz.glowHSL.h + (e.deltaY > 0 ? -0.02 : 0.02) + 1) % 1;
-      viz.pal.glow.setHSL(h, viz.glowHSL.s, viz.glowHSL.l);
-      const solid = /** @type {THREE.Mesh} */ (viz.mesh.children[0]);
-      const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
-      mat.uniforms.uBaseColor.value.copy(viz.pal.base);
-      mat.uniforms.uGlowColor.value.copy(viz.pal.glow);
-      applyBackground(viz.pal);
-    },
-    { passive: false }
-  );
+  // Hue wheel — mutate palette colors
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    viz.pal.base.getHSL(viz.baseHSL);
+    viz.pal.glow.getHSL(viz.glowHSL);
+    const step = e.deltaY > 0 ? -0.02 : 0.02;
+    const baseH = (viz.baseHSL.h + step + 1) % 1;
+    const glowH = (viz.glowHSL.h + step + 1) % 1;
+    viz.pal.base.setHSL(baseH, viz.baseHSL.s, viz.baseHSL.l);
+    viz.pal.glow.setHSL(glowH, viz.glowHSL.s, viz.glowHSL.l);
+    applyPaletteToMaterialsAndUI();
+  }, { passive: false });
 
   // UI sliders
   function hookRange(input, label, setter) {
-    const places =
-      input.step && input.step.includes(".")
-        ? input.step.split(".")[1].length
-        : 0;
+    const places = input.step && input.step.includes(".") ? input.step.split(".")[1].length : 0;
     const fmt = (x) => Number(x).toFixed(places);
     label.textContent = fmt(input.value);
     input.addEventListener("input", () => {
@@ -171,6 +142,7 @@ import { Config } from "Config";
     viz.subdiv = v | 0;
     viz.mesh = viz.makeMesh(viz.subdiv);
     viz.scene.add(viz.mesh);
+    applyPaletteToMaterialsAndUI();
     Config.update({ mesh: { ...Config.get().mesh, subdiv: v | 0 } });
   });
   hookRange(bloom, bloomv, (v) => {
@@ -178,16 +150,18 @@ import { Config } from "Config";
     Config.update({ bloom: { ...Config.get().bloom, strength: v } });
   });
 
-  // Palette swap -> lights & starfields update too
   paletteSel?.addEventListener("change", () => {
     viz.pal = palette(paletteSel.value);
-    applyBackground(viz.pal);
-    const solid = /** @type {THREE.Mesh} */ (viz.mesh.children[0]);
-    const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
-    viz.pal.base.getHSL(viz.baseHSL);
-    viz.pal.glow.getHSL(viz.glowHSL);
-    mat.uniforms.uBaseColor.value.copy(viz.pal.base);
-    mat.uniforms.uGlowColor.value.copy(viz.pal.glow);
+    if ("_baseHSL0" in viz && "_glowHSL0" in viz) {
+      viz._baseHSL0 = { h: 0, s: 1, l: 0.5 };
+      viz._glowHSL0 = { h: 0, s: 1, l: 0.5 };
+      viz.pal.base.getHSL(viz._baseHSL0);
+      viz.pal.glow.getHSL(viz._glowHSL0);
+    } else {
+      viz.pal.base.getHSL(viz.baseHSL);
+      viz.pal.glow.getHSL(viz.glowHSL);
+    }
+    applyPaletteToMaterialsAndUI();
     viz.rebuildStarfield();
   });
 
@@ -200,17 +174,13 @@ import { Config } from "Config";
 
   fileInput?.addEventListener("change", async () => {
     const f = fileInput.files && fileInput.files[0];
-    // force paused state to avoid undefined behavior mid-stream
     try {
       audio.pause();
     } catch {}
     setPlayingUI(false);
     if (actx && actx.state === "running") {
-      try {
-        await actx.suspend();
-      } catch {}
+      try { await actx.suspend(); } catch {}
     }
-
     if (!f) {
       ensureDefaultTrack(audio);
       return;
@@ -225,8 +195,7 @@ import { Config } from "Config";
   audio.addEventListener("pause", () => setPlayingUI(false));
   audio.addEventListener("ended", () => setPlayingUI(false));
   audio.addEventListener("error", () => {
-    stat &&
-      (stat.textContent = "Audio error: check file or default track path.");
+    stat && (stat.textContent = "Audio error: check file or default track path.");
   });
 
   // Play button
@@ -235,9 +204,7 @@ import { Config } from "Config";
     if (audio.paused || audio.ended) {
       if (!actx) await ensureAudio();
       if (actx.state === "suspended") {
-        try {
-          await actx.resume();
-        } catch {}
+        try { await actx.resume(); } catch {}
       }
       audio.muted = false;
       audio.volume = 1;
@@ -249,9 +216,7 @@ import { Config } from "Config";
     } else {
       audio.pause();
       if (actx && actx.state === "running") {
-        try {
-          await actx.suspend();
-        } catch {}
+        try { await actx.suspend(); } catch {}
       }
     }
   });
@@ -269,10 +234,7 @@ import { Config } from "Config";
       return;
     }
     try {
-      if (
-        typeof DeviceOrientationEvent !== "undefined" &&
-        typeof DeviceOrientationEvent.requestPermission === "function"
-      ) {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
         const r = await DeviceOrientationEvent.requestPermission();
         if (r !== "granted") throw new Error("Denied");
       }
