@@ -1,6 +1,6 @@
 {
   "name": "bwn-visualizer",
-  "version": "1.0.4",
+  "version": "1.0.6",
   "private": false,
   "scripts": {
     "dev": "node app.js",
