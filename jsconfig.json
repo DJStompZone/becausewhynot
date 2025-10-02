@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "checkJs": true,
+    "allowJs": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node", "@cloudflare/workers-types"],
+    "paths": {
+        "Config": ["./public/javascripts/Soundscape3/Config.js"],
+        "Visualizer": ["./public/javascripts/Soundscape3/Visualizer.js"],
+        "Utility": ["./public/javascripts/Soundscape3/Utility.js"],
+    }
+  },
+  "exclude": ["node_modules", "dist", "build"]
+}

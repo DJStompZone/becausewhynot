@@ -6,7 +6,84 @@ import { Config } from "Config";
 import { applyBackground, lerp, clamp, palette } from "Utility";
 
 /* ============================== Visualizer ============================== */
+/**
+ * Visualizer
+ *
+ * High-level audio-reactive WebGL visualizer built with Three.js and postprocessing.
+ * Creates a scene containing an animated, stellated icosahedron mesh with both solid
+ * and wireframe ShaderMaterials driven by an FFT texture supplied by a Web Audio
+ * AnalyserNode. The visualizer also manages camera motion, starfield layers,
+ * bloom postprocessing, palette drift, and audio-band smoothing & gating for
+ * morphology and flow effects.
+ *
+ * Usage:
+ *   const viz = new Visualizer(canvasElement, analyserNode);
+ *   // call viz.frame(t_ms) each animation frame
+ *
+ * @class
+ *
+ * @param {HTMLCanvasElement} canvas - Canvas element used to create the WebGLRenderer.
+ * @param {AnalyserNode} analyser - Web Audio AnalyserNode used to populate the spectrogram buffer.
+ *
+ * Public properties (high level)
+ * @property {THREE.Scene} scene - Three.js scene containing the mesh and starfields.
+ * @property {THREE.PerspectiveCamera} camera - Camera used to render the scene.
+ * @property {THREE.WebGLRenderer} renderer - WebGL renderer rendering to the provided canvas.
+ * @property {EffectComposer} composer - Postprocessing composer (contains render & bloom passes).
+ * @property {UnrealBloomPass} bloomPass - Bloom pass used by the composer.
+ * @property {Uint8Array} spec - Byte array containing the latest FFT frequency bins (0..255).
+ * @property {THREE.DataTexture} specTex - Three.js texture backed by `spec` used by shaders.
+ * @property {Object} pal - Palette object used for base and glow colors (palette implementation-specific).
+ * @property {THREE.Group} mesh - Group containing the solid and wireframe mesh children.
+ * @property {THREE.Points} starfield - Primary starfield Points object.
+ * @property {THREE.Points} starfieldBlur - Blurred/secondary starfield Points object.
+ * @property {number} sampleRate - AudioContext sample rate used for freq <-> bin calculations.
+ * @property {Object} energy - Raw per-band energies { bass, mid, treble, overall } in 0..1.
+ * @property {Object} smooth - Smoothed versions of the per-band energies (same keys).
+ * @property {Object} fast - Fast-reacting (short-time) values used for gating (e.g. fast.bass).
+ * @property {Object} orbit - Orbit parameters and current phase used to move the camera.
+ * @property {Object} lights - Light configuration used to drive shader intensities & directions.
+ * @property {Object} liquid - Material flow/noise parameters used by the fragment shader.
+ *
+ * Shader uniforms
+ * The mesh ShaderMaterials expose a rich uniform set including:
+ * - uTime, uSpec (spectrogram texture), uReactivity, uDistortion
+ * - uBaseColor, uGlowColor
+ * - uKeyDir, uFillDir, uRimDir (normalized light directions)
+ * - uKeyCol, uFillCol, uRimCol (light colors) and uKeyI/uFillI/uRimI (intensities)
+ * - uBassFast, uSpikeStrength, uSpikeSharp, uDirs (stellation directions)
+ * - uMorph (morph/blend between base and displaced geometry)
+ * - uLiquid, uRoughness, uMetallic (material properties)
+ * - uFlowPhase, uNoiseFreq, uNoiseAmp (flow / noise controls)
+ *
+ *
+ * @method applyMorphTargetArray
+ * @method frame
+ * @method makeMesh
+ * @method dispose
+ * @method resize
+ * @method updateFFTAndBands
+ *
+ * Resource management notes
+ * - When makeMesh() replaces an existing mesh it will remove and dispose of the previous mesh.
+ * - applyMorphTargetArray expects an array length matching the geometry's position attribute length.
+ * - The class uses a ResizeObserver on the canvas container to automatically call resize().
+ *
+ * Implementation notes / expectations
+ * - The analyser is expected to be an AudioContext AnalyserNode configured with a suitable
+ *   FFT size; Visualizer uses analyser.frequencyBinCount to size the spectrogram texture.
+ * - Palette, Config, createStarfield, EffectComposer, RenderPass, UnrealBloomPass, and utility
+ *   helpers (clamp, lerp, smoothstepEdge, disposeObject, palette, applyBackground, etc.)
+ *   are external dependencies that must be present in the runtime environment.
+ * - Shaders rely on a fixed DIR_COUNT (12) stellation direction array and expect uDirs to be an array
+ *   of vec3s. The vertex shader reads the spectrogram texture horizontally (uSpec at v = 0.5).
+ */
 export class Visualizer {
+  /**
+   *
+   * @param {HTMLCanvasElement} canvas
+   * @param {AnalyserNode} analyser
+   */
   constructor(canvas, analyser) {
     // Lights
     this.canvas = canvas;
@@ -46,13 +123,18 @@ export class Visualizer {
     this.composer.addPass(this.bloomPass);
 
     // Math is fun
+    const format = this.renderer.capabilities.isWebGL2
+      ? THREE.RedFormat
+      : THREE.AlphaFormat;
+
     this.fftBins = this.analyser.frequencyBinCount;
     this.spec = new Uint8Array(this.fftBins);
     this.specTex = new THREE.DataTexture(
       this.spec,
       this.fftBins,
       1,
-      THREE.LuminanceFormat
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType
     );
     this.specTex.needsUpdate = true;
     this.specTex.minFilter = THREE.LinearFilter;
@@ -78,7 +160,8 @@ export class Visualizer {
     this.scene.add(this.starfieldBlur);
 
     // Mesh > mush
-    const mx = Config.get().mesh;
+
+    const mx = /** @type MeshConfig */ Config.get().mesh;
     this.subdiv = mx.subdiv;
     this.rotationSpeed = mx.rotationSpeed;
     this.reactivity = mx.reactivity;
@@ -147,6 +230,13 @@ export class Visualizer {
     this.resize();
   }
 
+  /**
+   * @method makeMesh
+   * @param {number} subdiv - Icosahedron subdivision level used to create the base geometry.
+   * @returns {THREE.Group} group - Group containing the solid and wireframe mesh instances. Internally
+   *   sets up a "target" attribute used for morphing/stellation and creates ShaderMaterials that
+   *   reference the visualizer's spectrogram texture and other uniforms.
+   */
   makeMesh(subdiv) {
     if (this.mesh) {
       this.scene.remove(this.mesh);
@@ -181,6 +271,41 @@ export class Visualizer {
 
     const L = this.lights || Config.get().lights;
     const liquid = this.liquid || Config.get().liquid;
+
+    /**
+     * Uniforms for the Visualizer shader material.
+     *
+     * Each property follows the Three.js uniform convention: { value: ... } and can be passed
+     * directly to THREE.ShaderMaterial.uniforms.
+     * @type {{
+     *   uTime: { value: number };
+     *   uSpec: { value: import("three").Texture };
+     *   uReactivity: { value: number };
+     *   uDistortion: { value: number };
+     *   uBaseColor: { value: import("three").Color };
+     *   uGlowColor: { value: import("three").Color };
+     *   uKeyDir: { value: import("three").Vector3 };
+     *   uFillDir: { value: import("three").Vector3 };
+     *   uRimDir: { value: import("three").Vector3 };
+     *   uKeyCol: { value: import("three").Color };
+     *   uFillCol: { value: import("three").Color };
+     *   uRimCol: { value: import("three").Color };
+     *   uKeyI: { value: number };
+     *   uFillI: { value: number };
+     *   uRimI: { value: number };
+     *   uBassFast: { value: number };
+     *   uSpikeStrength: { value: number };
+     *   uSpikeSharp: { value: number };
+     *   uDirs: { value: any };
+     *   uMorph: { value: number };
+     *   uLiquid: { value: number };
+     *   uRoughness: { value: number };
+     *   uMetallic: { value: number };
+     *   uFlowPhase: { value: number };
+     *   uNoiseFreq: { value: number };
+     *   uNoiseAmp: { value: number };
+     * }}
+     */
 
     const uniforms = {
       uTime: { value: 1 },
@@ -422,41 +547,92 @@ export class Visualizer {
     return group;
   }
 
+  /**
+   * @method applyMorphTargetArray
+   * @param {Float32Array | Array<number>} targetArray - Flat float array (XYZ triplets) matching the
+   *   geometry position attribute length. Copies values into the "target" attribute of both solid
+   *   and wireframe geometries and marks them needsUpdate.
+   * @description
+   *  Updates the "target" morph attribute used by the vertex shader to displace vertices. Expects
+   *  the provided array to match the length of the geometry's position attribute; otherwise, no action
+   *  is taken.
+   */
   applyMorphTargetArray(targetArray) {
     const solid = /** @type {THREE.Mesh} */ (this.mesh.children[0]);
     const wire = /** @type {THREE.Mesh} */ (this.mesh.children[1]);
     const geoS = /** @type {THREE.BufferGeometry} */ (solid.geometry);
     const geoW = /** @type {THREE.BufferGeometry} */ (wire.geometry);
-    if (
-      geoS.getAttribute("target") &&
-      geoS.getAttribute("target").array.length === targetArray.length
-    ) {
-      geoS.getAttribute("target").set(targetArray);
-      geoS.getAttribute("target").needsUpdate = true;
+    const attrS = geoS.getAttribute("target");
+    if (attrS && attrS.array && attrS.array.length === targetArray.length) {
+      const dst = attrS.array;
+      if (dst && typeof dst.set === "function") {
+        dst.set(targetArray);
+      } else {
+        const maybeCopy = /** @type {any} */ (attrS).copyArray;
+        if (typeof maybeCopy === "function") {
+          maybeCopy.call(attrS, targetArray);
+        } else {
+          for (let i = 0; i < targetArray.length; i++) dst[i] = targetArray[i];
+        }
+      }
+      attrS.needsUpdate = true;
     }
-    if (
-      geoW.getAttribute("target") &&
-      geoW.getAttribute("target").array.length === targetArray.length
-    ) {
-      geoW.getAttribute("target").set(targetArray);
-      geoW.getAttribute("target").needsUpdate = true;
+
+    const attrW = geoW.getAttribute("target");
+    if (attrW && attrW.array && attrW.array.length === targetArray.length) {
+      const dstW = attrW.array;
+      if (dstW && typeof dstW.set === "function") {
+        dstW.set(targetArray);
+      } else {
+        const maybeCopyW = /** @type {any} */ (attrW).copyArray;
+        if (typeof maybeCopyW === "function") {
+          maybeCopyW.call(attrW, targetArray);
+        } else {
+          for (let i = 0; i < targetArray.length; i++) dstW[i] = targetArray[i];
+        }
+      }
+      attrW.needsUpdate = true;
     }
   }
-
+  /**
+   *
+   * @method freqToIndex
+   * @param {number} hz - Frequency in Hz.
+   * @returns {number} index - Closest FFT bin index corresponding to `hz`, clamped to valid range.
+   * @description
+   *  Converts a frequency in Hz to the closest FFT bin index based on the AudioContext sample rate
+   *
+   */
   freqToIndex(hz) {
     const nyq = this.sampleRate * 0.5;
     const frac = clamp(hz / nyq, 0, 1);
     return Math.round(frac * (this.spec.length - 1));
   }
 
+  /**
+   * @method updateFFTAndBands
+   * @description
+   *   Samples the analyser into the internal `spec` byte array (via getByteFrequencyData),
+   *   computes averaged band energies (bass, mid, treble, overall) and updates the fast &
+   *   smoothed band trackers used throughout the visualizer. Also marks the spectrogram texture
+   *   needsUpdate so shaders read the latest audio data.
+   * @returns {void}
+   */
   updateFFTAndBands() {
     this.analyser.getByteFrequencyData(this.spec);
     const N = this.spec.length;
+    /**
+     * @typedef {(i0: number, i1: number) => number} AvgFunc
+     */
+
+    /** @type {AvgFunc} */
     const avg = (i0, i1) => {
-      let s = 0,
-        c = 0;
+      /** @type {number} */
+      let s = 0;
+      /** @type {number} */
+      let c = 0;
       for (let i = Math.max(0, i0); i <= Math.min(N - 1, i1); i++) {
-        s += this.spec[i];
+        s += /** @type {number} */ (this.spec[i]);
         c++;
       }
       return c ? s / (c * 255) : 0;
@@ -477,6 +653,16 @@ export class Visualizer {
     this.specTex.needsUpdate = true;
   }
 
+  /**
+   *
+   * @method resize
+   * @description
+   *   Resizes the renderer, composer and bloom pass to the canvas display size (accounting for DPR).
+   *   Updates camera aspect and adjusts camera Z position relative to configured zoom and canvas
+   *   aspect to maintain a pleasing framing.
+   * @returns {void}
+   *
+   */
   resize() {
     const rect = this.canvas.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -494,6 +680,22 @@ export class Visualizer {
     this.composer.setSize(w, h);
   }
 
+  /**
+   *
+   * @method frame
+   * @param {number} t_ms - Current animation timestamp in milliseconds (typically provided by requestAnimationFrame).
+   * @description
+   *   Main per-frame update function. Steps:
+   *     - converts time and dt, updates FFT & band trackers
+   *     - updates camera position, orbit phase, and starfield motion based on audio energies
+   *     - integrates spin / gyro rotation and damping
+   *     - updates shader uniforms (time, reactivity, distortion, morph, bass-driven stellation)
+   *     - applies palette hue drift
+   *     - smooths and integrates flow speed & phase used by the liquid noise
+   *     - scales light intensities and bloom strength based on energy
+   *     - updates noise/liquid uniforms and invokes the composer.render()
+   * @returns {void}
+   */
   frame(t_ms) {
     const t = t_ms * 0.001,
       dt = this._lastTime ? Math.min(0.1, t - this._lastTime) : 0.016;
@@ -623,6 +825,13 @@ export class Visualizer {
     this.composer.render();
   }
 
+  /**
+   * @method rebuildStarfield
+   * @description
+   *   Recreates starfield and blurred-starfield point clouds using the current palette and
+   *   configuration. Disposes previous starfield objects and adds new ones to the scene.
+   * @returns {void}
+   */
   rebuildStarfield() {
     const cf = Config.get().starfield;
     if (this.starfield) {
@@ -648,7 +857,19 @@ export class Visualizer {
   }
 }
 
-/** Starfield */
+/**
+ * Starfield
+ * @param {number} count - Number of stars to generate.
+ * @param {number} radius - Radius of the starfield sphere.
+ * @param {{base: THREE.Color, glow: THREE.Color}} pal - Color palette with base and glow colors.
+ * @param {{size?: number, opacity?: number}} [opts] - Optional parameters.
+ * @returns {{points: THREE.Points, geom: THREE.BufferGeometry, mat: THREE.PointsMaterial}}
+ * @description
+ *   Creates a starfield point cloud with stars distributed on a sphere of given radius.
+ *   Each star's color is based on the glow color of the provided palette, with slight random
+ *   variations in hue, saturation, and lightness. Returns the Points object along with its
+ *   geometry and material for further customization if needed.
+ * */
 export function createStarfield(count, radius, pal, opts = {}) {
   const size = opts.size ?? 0.1,
     opacity = opts.opacity ?? 1.0;
@@ -692,14 +913,17 @@ export function createStarfield(count, radius, pal, opts = {}) {
   return { points, geom, mat };
 }
 
-
-/** Dark radial background for the scene */
+/**
+ * @description Dark radial background for the scene
+ * @returns {THREE.CanvasTexture} - Radial gradient texture
+ */
 export function makeRadialBackgroundTexture() {
   const s = 512,
     cvs = document.createElement("canvas");
   cvs.width = s;
   cvs.height = s;
   const ctx = cvs.getContext("2d");
+  if (!ctx) throw new Error("2D canvas context not supported");
   const g = ctx.createRadialGradient(
     s * 0.5,
     s * 0.55,
@@ -719,14 +943,31 @@ export function makeRadialBackgroundTexture() {
   tex.generateMipmaps = false;
   return tex;
 }
+
+/**
+ *
+ * @param {THREE.Object3D} obj - Object to dispose of (geometry and materials of all children).
+ * @description
+ *   Disposes of the geometries and materials of an object and all its children.
+ */
 export function disposeObject(obj) {
   obj.traverse((o) => {
-    if (o.geometry) o.geometry.dispose?.();
-    const m = o.material;
+    const g = /** @type {any} */ (o).geometry;
+    if (g) g.dispose?.();
+    const m = /** @type {any} */ (o).material;
     if (Array.isArray(m)) m.forEach((mm) => mm?.dispose?.());
     else m?.dispose?.();
   });
 }
+
+/**
+ * @param {number} a
+ * @param {number} b
+ * @param {number} x
+ * @returns {number} smoothstep value
+ * @description
+ *   Smoothstep function that eases from 0 to 1 as x goes from a to b, clamped outside that range.
+ */
 export function smoothstepEdge(a, b, x) {
   const t = clamp((x - a) / (b - a), 0, 1);
   return t * t * (3 - 2 * t);
