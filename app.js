@@ -14,8 +14,6 @@ const indexRouter = require("./routes/index");
 const victoryRouter = require("./routes/victory");
 const soundscapeRouter = require("./routes/soundscape");
 const singularityRouter = require("./routes/singularity");
-const whiplashRouter = require("./routes/whiplash");
-const goodluckRouter = require("./routes/goodluck");
 
 const app = express();
 
@@ -38,8 +36,6 @@ app.use("/", indexRouter);
 app.use("/soundscape", soundscapeRouter);
 app.use("/victory", victoryRouter);
 app.use("/singularity", singularityRouter);
-app.use("/whiplash", whiplashRouter);
-app.use("/goodluck", goodluckRouter);
 
 app.get("/becausewhynot", (req, res) => res.render("index"));
 
