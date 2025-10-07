@@ -14,6 +14,8 @@
         "Config": ["./public/javascripts/Soundscape3/Config.js"],
         "Visualizer": ["./public/javascripts/Soundscape3/Visualizer.js"],
         "Utility": ["./public/javascripts/Soundscape3/Utility.js"],
+        "Morph": ["./public/javascripts/Soundscape3/Morph.js"],
+        "DOM": ["./public/javascripts/Soundscape3/DOM.js"],
     }
   },
   "exclude": ["node_modules", "dist", "build"]

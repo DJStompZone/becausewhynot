@@ -1,20 +1,111 @@
 /**
- * Soundscape 3 - Interactive Music Visualizer
+ * Soundscape 3 - Interactive Music Visualizer (single entry for all routes)
  *
  * Author: DJ Stomp <DJStompZone>
  * License: MIT
- */
-
-/**
- * @typedef {{base:THREE.Color, glow:THREE.Color, line:THREE.Color, bgTop:string, bgBot:string}} Palette
+ *
+ * Optional data-* (reads from #player first, then <body>, then defaults):
+ *   data-default-track  string  default audio URL if #player has empty/missing src
+ *   data-autoplay       "true"|"false"  autoplay if allowed (default false)
+ *   data-volume         "0.0".."1.0"    initial volume (default 1.0)
+ *   data-palette        string  palette key to apply at boot (default "synthwave")
+ *   data-title          string  explicit footer label; if omitted we derive from filename
  */
 
 import { Visualizer } from "Visualizer";
 import { loadAndBakeSTLMorph } from "Morph";
 import { applyBackground, clamp, palette } from "Utility";
 import { Config } from "Config";
+import * as THREE from "three";
 
-/* ============================== Bootstrap ============================== */
+/**
+ * @description Resolves a boolean-ish attribute.
+ * @param {any} v
+ * @returns {boolean}
+ */
+function parseBool(v) {
+  return typeof v === "string" && v.toLowerCase() === "true";
+}
+
+/**
+ * @description Clamps to [0,1] number or undefined.
+ * @param {any} v
+ * @returns {number|undefined}
+ */
+function parseVolume(v) {
+  if (typeof v !== "string") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : undefined;
+}
+
+/**
+ * @description Gets dataset value from a preferred element, with a fallback host.
+ * @param {string} name Dataset key name (without "data-")
+ * @param {HTMLElement} primaryEl Primary element to check first
+ * @param {HTMLElement} fallbackEl Fallback element to check second
+ * @returns {string|undefined} Value if present and non-empty, else undefined
+ */
+function getData(name, primaryEl, fallbackEl) {
+  const k = name in primaryEl.dataset ? primaryEl.dataset[name] : undefined;
+  return typeof k === "string" && k.length > 0
+    ? k
+    : typeof fallbackEl.dataset[name] === "string" &&
+      fallbackEl.dataset[name].length > 0
+    ? fallbackEl.dataset[name]
+    : undefined;
+}
+
+/**
+ * @description Extracts a friendly name from a URL like "/audio/GoodLuckWithThat_Redux.mp3".
+ * @param {string} url
+ * @returns {string} Filename without extension, or original URL if invalid.
+ */
+function filenameLabel(url) {
+  try {
+    const p = new URL(url, location.href).pathname;
+    const base = p.split("/").pop() || "";
+    return base.replace(/\.[a-zA-Z0-9]+$/, "");
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * @description Ensures an <audio> element has a source; prefer its src, else data-default-track on audio/body.
+ * @param {HTMLAudioElement} audio
+ * @param {HTMLElement|null} statusEl Optional status element to update with messages.
+ * @returns {string} The chosen source URL, or empty string if none found.
+ */
+function ensureDefaultTrack(audio, statusEl) {
+  const body = document.body;
+  const current = audio.getAttribute("src") || "";
+  if (current.trim() !== "") return current;
+  const fallback = getData("defaultTrack", audio, body) || "";
+  if (fallback) {
+    audio.src = fallback;
+    if (statusEl)
+      statusEl.textContent = `Loaded default: ${filenameLabel(fallback)}`;
+    return fallback;
+  }
+  if (statusEl) statusEl.textContent = "No audio source configured.";
+  return "";
+}
+
+/**
+ * @description Sets the footer text from title override or filename.
+ * @param {HTMLDivElement|null} nowPlayingEl
+ * @param {string|undefined} explicitTitle
+ * @param {string} srcUrl
+ * @return {void}
+ */
+function setFooter(nowPlayingEl, explicitTitle, srcUrl) {
+  const title =
+    explicitTitle && explicitTitle.trim() !== ""
+      ? explicitTitle
+      : filenameLabel(srcUrl || "");
+  if (nowPlayingEl)
+    nowPlayingEl.textContent = title ? `Now Playing: ${title}` : "Idle";
+}
 
 (async function main() {
   const canvas = /** @type {HTMLCanvasElement} */ (
@@ -48,33 +139,28 @@ import { Config } from "Config";
   const bloomv = /** @type {HTMLSpanElement} */ (
     document.getElementById("bloomv")
   );
-  const playBtn = /** @type {HTMLButtonElement} */ (
-    document.getElementById("play")
-  );
-  const gyroBtn = /** @type {HTMLButtonElement} */ (
-    document.getElementById("gyro")
-  );
   const stat = /** @type {HTMLSpanElement} */ (document.getElementById("stat"));
-  const paletteSel = /** @type {HTMLSelectElement} */ (
+  const paletteSel = /** @type {HTMLSelectElement|null} */ (
     document.getElementById("palette")
   );
+  const nowPlaying = /** @type {HTMLDivElement} */ (
+    document.querySelector(".footer .now-playing")
+  );
 
-  const DEFAULT_TRACK = "/audio/singularity_320k.mp3";
-  function hasEmptySrc(el) {
-    const raw = el.getAttribute("src");
-    return !raw || raw.trim() === "";
-  }
-  function ensureDefaultTrack(el) {
-    if (hasEmptySrc(el)) {
-      el.src = DEFAULT_TRACK;
-      stat && (stat.textContent = "Loaded default: Singularity");
-    }
-  }
+  // Per-page options via data-* (audio takes precedence, then body)
+  const autoplay = parseBool(
+    getData("autoplay", audio, document.body) || "false"
+  );
+  const startVolume = parseVolume(getData("volume", audio, document.body));
+  const startPalette = getData("palette", audio, document.body);
+  const explicitTitle = getData("title", audio, document.body);
 
-  let actx = null,
-    analyser = null;
-  async function ensureAudio() {
+  var /** @type {AudioContext|null} */ actx = null;
+  var /** @type {AnalyserNode|null} */ analyser = null;
+
+  async function ensureAudioGraph() {
     if (actx) return;
+    // @ts-ignore
     actx = new (window.AudioContext || window.webkitAudioContext)();
     const src = actx.createMediaElementSource(audio);
     analyser = actx.createAnalyser();
@@ -83,14 +169,42 @@ import { Config } from "Config";
     src.connect(analyser).connect(actx.destination);
   }
 
-  ensureDefaultTrack(audio);
-  await ensureAudio();
+  const chosen = ensureDefaultTrack(audio, stat);
+  setFooter(nowPlaying, explicitTitle, chosen);
+
+  await ensureAudioGraph();
+  if (analyser === null) {
+    if (stat) stat.textContent = "Audio initialization failed.";
+    return;
+  }
   const viz = new Visualizer(canvas, /** @type {AnalyserNode} */ (analyser));
 
-  // Precompute morph target from STL
+  // optional palette override at boot
+  if (startPalette) {
+    viz.pal = palette(startPalette);
+    applyBackground(viz.pal);
+    const solid = /** @type {THREE.Mesh} */ (viz.mesh.children[0]);
+    const mat = /** @type {THREE.ShaderMaterial} */ (solid.material);
+    viz.pal.base.getHSL(viz.baseHSL);
+    viz.pal.glow.getHSL(viz.glowHSL);
+    mat.uniforms.uBaseColor.value.copy(viz.pal.base);
+    mat.uniforms.uGlowColor.value.copy(viz.pal.glow);
+    viz.rebuildStarfield();
+  }
+
+  if (typeof startVolume === "number") audio.volume = startVolume;
+  if (autoplay) {
+    try {
+      await audio.play();
+    } catch {
+      if (stat) stat.textContent = "Autoplay blocked; press Play.";
+    }
+  }
+
+  // Precompute morph target from STL (fire-and-forget)
   loadAndBakeSTLMorph("/spikeball.stl", viz).catch((e) => console.error(e));
 
-  // Drag controls
+  // Drag rotation
   let dragging = false,
     lastX = 0,
     lastY = 0;
@@ -143,6 +257,12 @@ import { Config } from "Config";
   );
 
   // UI sliders
+  /**
+   *
+   * @param {*} input
+   * @param {*} label
+   * @param {*} setter
+   */
   function hookRange(input, label, setter) {
     const places =
       input.step && input.step.includes(".")
@@ -178,7 +298,7 @@ import { Config } from "Config";
     Config.update({ bloom: { ...Config.get().bloom, strength: v } });
   });
 
-  // Palette swap -> lights & starfields update too
+  // Palette select
   paletteSel?.addEventListener("change", () => {
     viz.pal = palette(paletteSel.value);
     applyBackground(viz.pal);
@@ -195,12 +315,19 @@ import { Config } from "Config";
   function setPlayingUI(on) {
     const pb = document.getElementById("play");
     if (pb) pb.textContent = on ? "⏸ Pause" : "▶︎ Play";
-    stat && (stat.textContent = on ? "Playing" : "Paused");
+    if (stat) stat.textContent = on ? "Playing" : "Paused";
+  }
+  function updateFooterFromAudio() {
+    setFooter(
+      nowPlaying,
+      explicitTitle,
+      audio.currentSrc || audio.src || chosen
+    );
   }
 
+  // File picker
   fileInput?.addEventListener("change", async () => {
     const f = fileInput.files && fileInput.files[0];
-    // force paused state to avoid undefined behavior mid-stream
     try {
       audio.pause();
     } catch {}
@@ -210,41 +337,47 @@ import { Config } from "Config";
         await actx.suspend();
       } catch {}
     }
-
     if (!f) {
-      ensureDefaultTrack(audio);
+      const back = ensureDefaultTrack(audio, stat);
+      updateFooterFromAudio();
       return;
     }
     const url = URL.createObjectURL(f);
     audio.src = url;
-    stat && (stat.textContent = `Loaded ${f.name}`);
+    if (stat) stat.textContent = `Loaded ${f.name}`;
+    updateFooterFromAudio();
   });
 
   // Audio events
-  audio.addEventListener("play", () => setPlayingUI(true));
+  audio.addEventListener("play", () => {
+    setPlayingUI(true);
+    updateFooterFromAudio();
+  });
   audio.addEventListener("pause", () => setPlayingUI(false));
   audio.addEventListener("ended", () => setPlayingUI(false));
+  audio.addEventListener("loadedmetadata", updateFooterFromAudio);
   audio.addEventListener("error", () => {
-    stat &&
-      (stat.textContent = "Audio error: check file or default track path.");
+    if (stat)
+      stat.textContent = "Audio error: check file or default track path.";
   });
 
   // Play button
   document.getElementById("play")?.addEventListener("click", async () => {
-    ensureDefaultTrack(audio);
+    ensureDefaultTrack(audio, stat);
     if (audio.paused || audio.ended) {
-      if (!actx) await ensureAudio();
+      if (!actx) await ensureAudioGraph();
       if (actx.state === "suspended") {
         try {
           await actx.resume();
         } catch {}
       }
       audio.muted = false;
-      audio.volume = 1;
+      if (typeof startVolume === "number") audio.volume = startVolume;
+      else audio.volume = 1;
       try {
         await audio.play();
       } catch {
-        stat && (stat.textContent = "Tap the audio control");
+        if (stat) stat.textContent = "Tap the audio control";
       }
     } else {
       audio.pause();
@@ -258,13 +391,13 @@ import { Config } from "Config";
 
   // Gyro
   async function toggleGyro() {
-    const gyroBtn = document.getElementById("gyro");
+    const btn = document.getElementById("gyro");
     if (viz.gyro.on) {
       window.removeEventListener("deviceorientation", onDOF);
       viz.gyro.on = false;
-      if (gyroBtn) {
-        gyroBtn.dataset.on = "false";
-        gyroBtn.textContent = "Off";
+      if (btn) {
+        btn.dataset.on = "false";
+        btn.textContent = "Off";
       }
       return;
     }
@@ -278,13 +411,13 @@ import { Config } from "Config";
       }
       window.addEventListener("deviceorientation", onDOF, { passive: true });
       viz.gyro.on = true;
-      if (gyroBtn) {
-        gyroBtn.dataset.on = "true";
-        gyroBtn.textContent = "On";
+      if (btn) {
+        btn.dataset.on = "true";
+        btn.textContent = "On";
       }
     } catch {
-      const stat = document.getElementById("stat");
-      if (stat) stat.textContent = "Gyro permission denied";
+      const s = document.getElementById("stat");
+      if (s) s.textContent = "Gyro permission denied";
     }
   }
   function onDOF(e) {

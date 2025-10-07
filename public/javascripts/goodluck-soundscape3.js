@@ -59,6 +59,7 @@ import { Config } from "Config";
     document.getElementById("palette")
   );
 
+
   const DEFAULT_TRACK = "/audio/GoodLuckWithThat_Redux.mp3";
   function hasEmptySrc(el) {
     const raw = el.getAttribute("src");
