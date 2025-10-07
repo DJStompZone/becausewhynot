@@ -7,7 +7,7 @@
     "clean": "node -e \"require('rimraf').rimrafSync('dist')\"",
     "shim:copy": "node -e \"const fs=require('fs'),p=require('path');const src=require.resolve('es-module-shims');const dstDir=p.join('public','javascripts');fs.mkdirSync(dstDir,{recursive:true});fs.copyFileSync(src,p.join(dstDir,'es-module-shims.js'));try{fs.copyFileSync(src+'.map',p.join(dstDir,'es-module-shims.js.map'))}catch{}\"",
     "prebuild": "node -e \"require('rimraf').rimrafSync('dist'); require('fs').mkdirSync('dist',{recursive:true})\"",
-    "pug:compile": "node node_modules/pug-cli/index.js -P -o dist views/index.pug views/soundscape.pug views/victory.pug views/singularity.pug",
+    "pug:compile": "node node_modules/pug-cli/index.js -P -o dist views/index.pug views/soundscape.pug views/gravytrain.pug views/victory.pug views/singularity.pug",
     "copy:public": "node node_modules/cpy-cli/cli.js . ../../dist --cwd=public",
     "build": "npm run shim:copy && npm run prebuild && npm run pug:compile && npm run copy:public && node scripts/fix-routes.js",
     "start": "node app.js"

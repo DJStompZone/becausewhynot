@@ -1,0 +1,87 @@
+block head
+  link(rel="stylesheet", href="/stylesheets/style.css")
+  link(rel="stylesheet", href="/stylesheets/singularity.css")
+  script(async src="/javascripts/es-module-shims.js" crossorigin="anonymous")
+  script(type="importmap-shim").
+    {
+      "imports": {
+        "three": "/javascripts/three.module.js",
+        "DOM": "/javascripts/Soundscape3/DOM.js",
+        "Utility": "/javascripts/Soundscape3/Utility.js",
+        "Config": "/javascripts/Soundscape3/Config.js",
+        "Morph": "/javascripts/Soundscape3/Morph.js",
+        "Visualizer": "/javascripts/Soundscape3/Visualizer.js"
+      }
+    }
+
+block content
+  #stage-layer
+    canvas#bg-stars(aria-hidden="true")
+    canvas#stage
+
+  #controls-sheet(data-open="false")
+    #controls-body
+      .wrap
+        .hud
+          .card
+            p.title Controls
+            .controls
+              .row
+                label(for="file") Audio
+                input#file(type="file" accept="audio/*")
+                button.btn#play(type="button") ▶︎ Play
+              .row(style="display: none;")
+                label(for="rot") Rotation
+                input#rot(type="range" min="0" max="2.5" step="0.01" value="0.35")
+                span.val#rotv 0.35
+              .row(style="display: none;")
+                label(for="dist") Distortion
+                input#dist(type="range" min="0" max="3.0" step="0.01" value="0.7")
+                span.val#distv 0.70
+              .row(style="display: none;")
+                label(for="react") Reactivity
+                input#react(type="range" min="0" max="3.0" step="0.01" value="3.0")
+                span.val#reactv 3.0
+              .row(style="display: none;")
+                label(for="res") Geometry
+                input#res(type="range" min="3" max="3" step="1" value="3")
+                span.val#resv 3
+              .row(style="display: none;")
+                label(for="bloom") Bloom
+                input#bloom(type="range" min="0" max="2.5" step="0.01" value="1.3")
+                span.val#bloomv 1.30
+              .row
+                label Gyro
+                button.btn#gyro(type="button" data-on="false") Off
+                span.val#stat Idle
+          .card
+            p.title Theme
+            .bar
+            .controls
+              .row
+                label Palette
+                select#palette
+                  option(value="synth") Synthwave
+                  option(value="noir") Noir Violet
+                  option(value="burn") Burning City
+                  option(value="voltage") Voltage Red
+                  option(value="iron") Iron Steel
+                  option(value="ember" selected) Ember Glow
+                  option(value="acid") Acid Green
+                  option(value="storm") Electric Storm
+                  option(value="crimson") Crimson Blood
+                  option(value="grunge") Grunge Bronze
+                  option(value="obsidian") Obsidian Purple
+                  option(value="hellfire") Hellfire Inferno
+                  option(value="diesel") Diesel Gray
+                span.val &nbsp;
+
+  button#controls-toggle(type="button" aria-label="Toggle controls") ⚙️
+
+  .footer ⏵ Now Playing: DJ Stomp - Good Luck With That (Redux)
+
+  audio#player(preload="metadata" crossorigin="anonymous" src="/audio/GravyTrain_Grassroots_Mastered.mp3")
+
+  script(type="module-shim" src="/javascripts/goodluck-soundscape3.js")
+
+  script(src="/javascripts/controls-sheet.js")
