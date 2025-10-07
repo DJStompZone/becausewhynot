@@ -56,6 +56,7 @@ async function addRedirects() {
   await moveIntoRoute("singularity.html", "singularity");
   await moveIntoRoute("gravytrain.html", "gravytrain");
   await moveIntoRoute("goodluck.html", "goodluck");
+  await moveIntoRoute("whiplash.html", "whiplash");
   await aliasIndexToBecauseWhyNot();
   await addRedirects();
 })().catch((e) => { console.error(e); process.exit(1); });
