@@ -27,9 +27,12 @@ block content
             p.title Controls
             .controls
               .row
+                label(for="play") Controls
+                button.btn#play(type="button") ▶︎ Play
+              .row
                 label(for="file") Audio
                 input#file(type="file" accept="audio/*")
-                button.btn#play(type="button") ▶︎ Play
+                span#file-label DJ Stomp - Gravy Train (Grassroots)
               .row(style="display: none;")
                 label(for="rot") Rotation
                 input#rot(type="range" min="0" max="2.5" step="0.01" value="0.35")

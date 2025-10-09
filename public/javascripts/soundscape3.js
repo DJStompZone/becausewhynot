@@ -147,6 +147,18 @@ function setFooter(nowPlayingEl, explicitTitle, srcUrl) {
     document.querySelector(".footer .now-playing")
   );
 
+  const fileLabel = document.getElementById("file-label");
+
+  if (fileInput && fileLabel && audio) {
+    fileLabel.textContent = audio.dataset.title || "Default track";
+
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length > 0) {
+        fileLabel.textContent = fileInput.files[0].name;
+      }
+    });
+  }
+
   // Per-page options via data-* (audio takes precedence, then body)
   const autoplay = parseBool(
     getData("autoplay", audio, document.body) || "false"
