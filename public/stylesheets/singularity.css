@@ -350,7 +350,7 @@ body {
   (max-width: 1024px),
   (hover: none) and (pointer: coarse) {
   :root {
-    --sheet-collapsed-h: 64px;
+    --sheet-collapsed-h: 5dvh;
     --sheet-open-h: 78dvh;
     --sheet-max-h: 720px;
   }
