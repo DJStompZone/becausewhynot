@@ -17,6 +17,7 @@ const singularityRouter = require("./routes/singularity");
 const goodluckRouter = require("./routes/goodluck");
 const gravytrainRouter = require("./routes/gravytrain");
 const whiplashRouter = require("./routes/whiplash");
+const cotlRouter = require("./routes/cotl");
 
 const app = express();
 
@@ -42,6 +43,7 @@ app.use("/singularity", singularityRouter);
 app.use("/goodluck", goodluckRouter);
 app.use("/gravytrain", gravytrainRouter);
 app.use("/whiplash", whiplashRouter);
+app.use("/cotl", cotlRouter);
 
 app.get("/becausewhynot", (req, res) => res.render("index"));
 
