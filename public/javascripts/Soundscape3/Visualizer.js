@@ -136,6 +136,7 @@ export class Visualizer {
       THREE.RGBAFormat,
       THREE.UnsignedByteType
     );
+    console.log(this.specTex);
     this.specTex.needsUpdate = true;
     this.specTex.minFilter = THREE.LinearFilter;
     this.specTex.magFilter = THREE.LinearFilter;
