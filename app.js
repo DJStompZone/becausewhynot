@@ -18,6 +18,7 @@ const goodluckRouter = require("./routes/goodluck");
 const gravytrainRouter = require("./routes/gravytrain");
 const whiplashRouter = require("./routes/whiplash");
 const cotlRouter = require("./routes/cotl");
+const audiobooksRouter = require("./routes/audiobooks");
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.use("/goodluck", goodluckRouter);
 app.use("/gravytrain", gravytrainRouter);
 app.use("/whiplash", whiplashRouter);
 app.use("/cotl", cotlRouter);
+app.use("/audiobooks", audiobooksRouter);
 
 app.get("/becausewhynot", (req, res) => res.render("index"));
 

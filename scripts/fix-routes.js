@@ -58,6 +58,18 @@ async function addRedirects() {
   await moveIntoRoute("goodluck.html", "goodluck");
   await moveIntoRoute("whiplash.html", "whiplash");
   await moveIntoRoute("cotl.html", "cotl");
+  await moveIntoRoute(
+    "audiobook-introductory-antimimetics.html",
+    "audiobooks/introductory-antimimetics"
+  );
+  await moveIntoRoute(
+    "audiobook-unforgettable.html",
+    "audiobooks/unforgettable"
+  );
+  await moveIntoRoute(
+    "audiobook-we-need-to-talk-about-fifty-five.html",
+    "audiobooks/we-need-to-talk-about-fifty-five"
+  );
   await aliasIndexToBecauseWhyNot();
   await addRedirects();
 })().catch((e) => { console.error(e); process.exit(1); });
